@@ -45,7 +45,7 @@ django-rich
 
 # Django integration for RQ (Reqis queuing)
 # https://github.com/rq/django-rq/blob/master/CHANGELOG.md
-django-rq
+django-rq==2.10.2
 
 # Abstraction models for rendering and paginating HTML tables
 # https://github.com/jieter/django-tables2/blob/master/CHANGELOG.md
@@ -145,4 +145,4 @@ tablib
 # https://github.com/python/tzdata/blob/master/NEWS.md
 tzdata
 
-rq==2.10.2
+rq<1.16.2
