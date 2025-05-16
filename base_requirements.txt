@@ -40,7 +40,7 @@ django-rich
 
 # Django integration for RQ (Reqis queuing)
 # https://github.com/rq/django-rq/blob/master/CHANGELOG.md
-django-rq==2.10.2
+django-rq
 
 # Abstraction models for rendering and paginating HTML tables
 # https://github.com/jieter/django-tables2/blob/master/CHANGELOG.md
@@ -145,5 +145,3 @@ tablib
 # Timezone data (required by django-timezone-field on Python 3.9+)
 # https://github.com/python/tzdata/blob/master/NEWS.md
 tzdata
-
-rq>=1.11.0,<1.16.2
