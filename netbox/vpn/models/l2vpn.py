@@ -1,11 +1,10 @@
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 
-from core.models import ContentType
+from core.models import ObjectType
 from netbox.models import NetBoxModel, PrimaryModel
 from netbox.models.features import ContactsMixin
 from vpn.choices import L2VPNTypeChoices
@@ -21,7 +20,8 @@ class L2VPN(ContactsMixin, PrimaryModel):
     name = models.CharField(
         verbose_name=_('name'),
         max_length=100,
-        unique=True
+        unique=True,
+        db_collation="natural_sort"
     )
     slug = models.SlugField(
         verbose_name=_('slug'),
@@ -67,9 +67,6 @@ class L2VPN(ContactsMixin, PrimaryModel):
         if self.identifier:
             return f'{self.name} ({self.identifier})'
         return f'{self.name}'
-
-    def get_absolute_url(self):
-        return reverse('vpn:l2vpn', args=[self.pk])
 
     @cached_property
     def can_add_termination(self):
@@ -121,14 +118,11 @@ class L2VPNTermination(NetBoxModel):
             return f'{self.assigned_object} <> {self.l2vpn}'
         return super().__str__()
 
-    def get_absolute_url(self):
-        return reverse('vpn:l2vpntermination', args=[self.pk])
-
     def clean(self):
         # Only check is assigned_object is set.  Required otherwise we have an Integrity Error thrown.
         if self.assigned_object:
             obj_id = self.assigned_object.pk
-            obj_type = ContentType.objects.get_for_model(self.assigned_object)
+            obj_type = ObjectType.objects.get_for_model(self.assigned_object)
             if L2VPNTermination.objects.filter(assigned_object_id=obj_id, assigned_object_type=obj_type).\
                     exclude(pk=self.pk).count() > 0:
                 raise ValidationError(
@@ -150,7 +144,7 @@ class L2VPNTermination(NetBoxModel):
 
     @property
     def assigned_object_parent(self):
-        obj_type = ContentType.objects.get_for_model(self.assigned_object)
+        obj_type = ObjectType.objects.get_for_model(self.assigned_object)
         if obj_type.model == 'vminterface':
             return self.assigned_object.virtual_machine
         elif obj_type.model == 'interface':

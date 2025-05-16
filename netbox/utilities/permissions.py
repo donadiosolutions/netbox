@@ -1,14 +1,16 @@
 from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
+from django.apps import apps
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
+
+from users.constants import CONSTRAINT_TOKEN_USER
 
 __all__ = (
     'get_permission_for_model',
     'permission_is_exempt',
     'qs_filter_from_constraints',
     'resolve_permission',
-    'resolve_permission_ct',
+    'resolve_permission_type',
 )
 
 
@@ -43,20 +45,21 @@ def resolve_permission(name):
     return app_label, action, model_name
 
 
-def resolve_permission_ct(name):
+def resolve_permission_type(name):
     """
-    Given a permission name, return the relevant ContentType and action. For example, "dcim.view_site" returns
+    Given a permission name, return the relevant ObjectType and action. For example, "dcim.view_site" returns
     (Site, "view").
 
     :param name: Permission name in the format <app_label>.<action>_<model>
     """
+    from core.models import ObjectType
     app_label, action, model_name = resolve_permission(name)
     try:
-        content_type = ContentType.objects.get(app_label=app_label, model=model_name)
-    except ContentType.DoesNotExist:
+        object_type = ObjectType.objects.get_by_natural_key(app_label=app_label, model=model_name)
+    except ObjectType.DoesNotExist:
         raise ValueError(_("Unknown app_label/model_name for {name}").format(name=name))
 
-    return content_type, action
+    return object_type, action
 
 
 def permission_is_exempt(name):
@@ -89,6 +92,11 @@ def qs_filter_from_constraints(constraints, tokens=None):
     """
     if tokens is None:
         tokens = {}
+
+    User = apps.get_model('users.User')
+    for token, value in tokens.items():
+        if token == CONSTRAINT_TOKEN_USER and isinstance(value, User):
+            tokens[token] = value.id
 
     def _replace_tokens(value, tokens):
         if type(value) is list:

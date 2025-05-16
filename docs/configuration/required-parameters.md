@@ -2,7 +2,7 @@
 
 ## ALLOWED_HOSTS
 
-This is a list of valid fully-qualified domain names (FQDNs) and/or IP addresses that can be used to reach the NetBox service. Usually this is the same as the hostname for the NetBox server, but can also be different; for example, when using a reverse proxy serving the NetBox website under a different FQDN than the hostname of the NetBox server. To help guard against [HTTP Host header attackes](https://docs.djangoproject.com/en/3.0/topics/security/#host-headers-virtual-hosting), NetBox will not permit access to the server via any other hostnames (or IPs).
+This is a list of valid fully-qualified domain names (FQDNs) and/or IP addresses that can be used to reach the NetBox service. Usually this is the same as the hostname for the NetBox server, but can also be different; for example, when using a reverse proxy serving the NetBox website under a different FQDN than the hostname of the NetBox server. To help guard against [HTTP Host header attacks](https://docs.djangoproject.com/en/3.0/topics/security/#host-headers-virtual-hosting), NetBox will not permit access to the server via any other hostnames (or IPs).
 
 !!! note
     This parameter must always be defined as a list or tuple, even if only a single value is provided.
@@ -25,7 +25,7 @@ ALLOWED_HOSTS = ['*']
 
 ## DATABASE
 
-NetBox requires access to a PostgreSQL 12 or later database service to store data. This service can run locally on the NetBox server or on a remote system. The following parameters must be defined within the `DATABASE` dictionary:
+NetBox requires access to a PostgreSQL 13 or later database service to store data. This service can run locally on the NetBox server or on a remote system. The following parameters must be defined within the `DATABASE` dictionary:
 
 * `NAME` - Database name
 * `USER` - PostgreSQL username
@@ -94,14 +94,24 @@ REDIS = {
 }
 ```
 
-!!! note
-    If you are upgrading from a NetBox release older than v2.7.0, please note that the Redis connection configuration
-    settings have changed. Manual modification to bring the `REDIS` section inline with the above specification is
-    necessary
-
 !!! warning
     It is highly recommended to keep the task and cache databases separate. Using the same database number on the
     same Redis instance for both may result in queued background tasks being lost during cache flushing events.
+
+### UNIX Socket Support
+
+Redis may alternatively be configured by specifying a complete URL instead of individual components. This approach supports the use of a UNIX socket connection. For example:
+
+```python
+REDIS = {
+    'tasks': {
+        'URL': 'unix:///run/redis-netbox/redis.sock?db=0'
+    },
+    'caching': {
+        'URL': 'unix:///run/redis-netbox/redis.sock?db=1'
+    },
+}
+```
 
 ### Using Redis Sentinel
 

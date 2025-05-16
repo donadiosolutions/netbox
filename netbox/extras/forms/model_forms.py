@@ -2,22 +2,24 @@ import json
 import re
 
 from django import forms
-from django.contrib.contenttypes.models import ContentType
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
 from core.forms.mixins import SyncedDataMixin
-from core.models import ContentType
+from core.models import ObjectType
 from dcim.models import DeviceRole, DeviceType, Location, Platform, Region, Site, SiteGroup
 from extras.choices import *
 from extras.models import *
+from netbox.events import get_event_type_choices
 from netbox.forms import NetBoxModelForm
 from tenancy.models import Tenant, TenantGroup
-from utilities.forms import BootstrapMixin, add_blank_choice, get_field_value
+from users.models import Group, User
+from utilities.forms import get_field_value
 from utilities.forms.fields import (
     CommentField, ContentTypeChoiceField, ContentTypeMultipleChoiceField, DynamicModelChoiceField,
     DynamicModelMultipleChoiceField, JSONField, SlugField,
 )
+from utilities.forms.rendering import FieldSet, ObjectAttribute
 from utilities.forms.widgets import ChoicesWidget, HTMXSelect
 from virtualization.models import Cluster, ClusterGroup, ClusterType
 
@@ -32,35 +34,47 @@ __all__ = (
     'ExportTemplateForm',
     'ImageAttachmentForm',
     'JournalEntryForm',
+    'NotificationGroupForm',
     'SavedFilterForm',
+    'SubscriptionForm',
     'TagForm',
     'WebhookForm',
 )
 
 
-class CustomFieldForm(BootstrapMixin, forms.ModelForm):
-    content_types = ContentTypeMultipleChoiceField(
-        label=_('Content types'),
-        queryset=ContentType.objects.with_feature('custom_fields')
+class CustomFieldForm(forms.ModelForm):
+    object_types = ContentTypeMultipleChoiceField(
+        label=_('Object types'),
+        queryset=ObjectType.objects.with_feature('custom_fields'),
+        help_text=_("The type(s) of object that have this custom field")
     )
-    object_type = ContentTypeChoiceField(
-        label=_('Object type'),
-        queryset=ContentType.objects.public(),
-        required=False,
-        help_text=_("Type of the related object (for object/multi-object fields only)")
-    )
-    choice_set = DynamicModelChoiceField(
-        queryset=CustomFieldChoiceSet.objects.all(),
+    default = JSONField(
+        label=_('Default value'),
         required=False
     )
+    related_object_type = ContentTypeChoiceField(
+        label=_('Related object type'),
+        queryset=ObjectType.objects.public(),
+        help_text=_("Type of the related object (for object/multi-object fields only)")
+    )
+    related_object_filter = JSONField(
+        label=_('Related object filter'),
+        required=False,
+        help_text=_('Specify query parameters as a JSON object.')
+    )
+    choice_set = DynamicModelChoiceField(
+        queryset=CustomFieldChoiceSet.objects.all()
+    )
+    comments = CommentField()
 
     fieldsets = (
-        (_('Custom Field'), (
-            'content_types', 'name', 'label', 'group_name', 'type', 'object_type', 'required', 'description',
-        )),
-        (_('Behavior'), ('search_weight', 'filter_logic', 'ui_visible', 'ui_editable', 'weight', 'is_cloneable')),
-        (_('Values'), ('default', 'choice_set')),
-        (_('Validation'), ('validation_minimum', 'validation_maximum', 'validation_regex')),
+        FieldSet(
+            'object_types', 'name', 'label', 'group_name', 'description', 'type', 'required', 'unique', 'default',
+            name=_('Custom Field')
+        ),
+        FieldSet(
+            'search_weight', 'filter_logic', 'ui_visible', 'ui_editable', 'weight', 'is_cloneable', name=_('Behavior')
+        ),
     )
 
     class Meta:
@@ -77,13 +91,78 @@ class CustomFieldForm(BootstrapMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # Mimic HTMXSelect()
+        self.fields['type'].widget.attrs.update({
+            'hx-get': '.',
+            'hx-include': '#form_fields',
+            'hx-target': '#form_fields',
+        })
+
         # Disable changing the type of a CustomField as it almost universally causes errors if custom field data
         # is already present.
         if self.instance.pk:
             self.fields['type'].disabled = True
 
+        field_type = get_field_value(self, 'type')
 
-class CustomFieldChoiceSetForm(BootstrapMixin, forms.ModelForm):
+        # Adjust for text fields
+        if field_type in (
+                CustomFieldTypeChoices.TYPE_TEXT,
+                CustomFieldTypeChoices.TYPE_LONGTEXT,
+                CustomFieldTypeChoices.TYPE_URL
+        ):
+            self.fieldsets = (
+                self.fieldsets[0],
+                FieldSet('validation_regex', name=_('Validation')),
+                *self.fieldsets[1:]
+            )
+        else:
+            del self.fields['validation_regex']
+
+        # Adjust for numeric fields
+        if field_type in (
+                CustomFieldTypeChoices.TYPE_INTEGER,
+                CustomFieldTypeChoices.TYPE_DECIMAL
+        ):
+            self.fieldsets = (
+                self.fieldsets[0],
+                FieldSet('validation_minimum', 'validation_maximum', name=_('Validation')),
+                *self.fieldsets[1:]
+            )
+        else:
+            del self.fields['validation_minimum']
+            del self.fields['validation_maximum']
+
+        # Adjust for object & multi-object fields
+        if field_type in (
+                CustomFieldTypeChoices.TYPE_OBJECT,
+                CustomFieldTypeChoices.TYPE_MULTIOBJECT
+        ):
+            self.fieldsets = (
+                self.fieldsets[0],
+                FieldSet('related_object_type', 'related_object_filter', name=_('Related Object')),
+                *self.fieldsets[1:]
+            )
+        else:
+            del self.fields['related_object_type']
+            del self.fields['related_object_filter']
+
+        # Adjust for selection & multi-select fields
+        if field_type in (
+                CustomFieldTypeChoices.TYPE_SELECT,
+                CustomFieldTypeChoices.TYPE_MULTISELECT
+        ):
+            self.fieldsets = (
+                self.fieldsets[0],
+                FieldSet('choice_set', name=_('Choices')),
+                *self.fieldsets[1:]
+            )
+        else:
+            del self.fields['choice_set']
+
+
+class CustomFieldChoiceSetForm(forms.ModelForm):
+    # TODO: The extra_choices field definition diverge from the CustomFieldChoiceSet model
     extra_choices = forms.CharField(
         widget=ChoicesWidget(),
         required=False,
@@ -100,12 +179,25 @@ class CustomFieldChoiceSetForm(BootstrapMixin, forms.ModelForm):
     def __init__(self, *args, initial=None, **kwargs):
         super().__init__(*args, initial=initial, **kwargs)
 
-        # Escape colons in extra_choices
+        # TODO: The check for str / list below is to handle difference in extra_choices field definition
+        # In CustomFieldChoiceSetForm, extra_choices is a CharField but in CustomFieldChoiceSet, it is an ArrayField
+        # if standardize these, we can simplify this code
+
+        # Convert extra_choices Array Field from model to CharField for form
         if 'extra_choices' in self.initial and self.initial['extra_choices']:
-            choices = []
-            for choice in self.initial['extra_choices']:
-                choice = (choice[0].replace(':', '\\:'), choice[1].replace(':', '\\:'))
-                choices.append(choice)
+            extra_choices = self.initial['extra_choices']
+            if isinstance(extra_choices, str):
+                extra_choices = [extra_choices]
+            choices = ""
+            for choice in extra_choices:
+                # Setup choices in Add Another use case
+                if isinstance(choice, str):
+                    choice_str = ":".join(choice.replace("'", "").replace(" ", "")[1:-1].split(","))
+                    choices += choice_str + "\n"
+                # Setup choices in Edit use case
+                elif isinstance(choice, list):
+                    choice_str = ":".join(choice)
+                    choices += choice_str + "\n"
 
             self.initial['extra_choices'] = choices
 
@@ -118,19 +210,22 @@ class CustomFieldChoiceSetForm(BootstrapMixin, forms.ModelForm):
                 label = label.replace('\\:', ':')
             except ValueError:
                 value, label = line, line
-            data.append((value, label))
+            data.append((value.strip(), label.strip()))
         return data
 
 
-class CustomLinkForm(BootstrapMixin, forms.ModelForm):
-    content_types = ContentTypeMultipleChoiceField(
-        label=_('Content types'),
-        queryset=ContentType.objects.with_feature('custom_links')
+class CustomLinkForm(forms.ModelForm):
+    object_types = ContentTypeMultipleChoiceField(
+        label=_('Object types'),
+        queryset=ObjectType.objects.with_feature('custom_links')
     )
 
     fieldsets = (
-        (_('Custom Link'), ('name', 'content_types', 'weight', 'group_name', 'button_class', 'enabled', 'new_window')),
-        (_('Templates'), ('link_text', 'link_url')),
+        FieldSet(
+            'name', 'object_types', 'weight', 'group_name', 'button_class', 'enabled', 'new_window',
+            name=_('Custom Link')
+        ),
+        FieldSet('link_text', 'link_url', name=_('Templates')),
     )
 
     class Meta:
@@ -151,10 +246,10 @@ class CustomLinkForm(BootstrapMixin, forms.ModelForm):
         }
 
 
-class ExportTemplateForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
-    content_types = ContentTypeMultipleChoiceField(
-        label=_('Content types'),
-        queryset=ContentType.objects.with_feature('export_templates')
+class ExportTemplateForm(SyncedDataMixin, forms.ModelForm):
+    object_types = ContentTypeMultipleChoiceField(
+        label=_('Object types'),
+        queryset=ObjectType.objects.with_feature('export_templates')
     )
     template_code = forms.CharField(
         label=_('Template code'),
@@ -163,9 +258,9 @@ class ExportTemplateForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
     )
 
     fieldsets = (
-        (_('Export Template'), ('name', 'content_types', 'description', 'template_code')),
-        (_('Data Source'), ('data_source', 'data_file', 'auto_sync_enabled')),
-        (_('Rendering'), ('mime_type', 'file_extension', 'as_attachment')),
+        FieldSet('name', 'object_types', 'description', 'template_code', name=_('Export Template')),
+        FieldSet('data_source', 'data_file', 'auto_sync_enabled', name=_('Data Source')),
+        FieldSet('mime_type', 'file_extension', 'as_attachment', name=_('Rendering')),
     )
 
     class Meta:
@@ -191,17 +286,17 @@ class ExportTemplateForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
         return self.cleaned_data
 
 
-class SavedFilterForm(BootstrapMixin, forms.ModelForm):
+class SavedFilterForm(forms.ModelForm):
     slug = SlugField()
-    content_types = ContentTypeMultipleChoiceField(
-        label=_('Content types'),
-        queryset=ContentType.objects.all()
+    object_types = ContentTypeMultipleChoiceField(
+        label=_('Object types'),
+        queryset=ObjectType.objects.all()
     )
     parameters = JSONField()
 
     fieldsets = (
-        (_('Saved Filter'), ('name', 'slug', 'content_types', 'description', 'weight', 'enabled', 'shared')),
-        (_('Parameters'), ('parameters',)),
+        FieldSet('name', 'slug', 'object_types', 'description', 'weight', 'enabled', 'shared', name=_('Saved Filter')),
+        FieldSet('parameters', name=_('Parameters')),
     )
 
     class Meta:
@@ -218,10 +313,10 @@ class SavedFilterForm(BootstrapMixin, forms.ModelForm):
         super().__init__(*args, initial=initial, **kwargs)
 
 
-class BookmarkForm(BootstrapMixin, forms.ModelForm):
+class BookmarkForm(forms.ModelForm):
     object_type = ContentTypeChoiceField(
         label=_('Object type'),
-        queryset=ContentType.objects.with_feature('bookmarks')
+        queryset=ObjectType.objects.with_feature('bookmarks')
     )
 
     class Meta:
@@ -229,14 +324,52 @@ class BookmarkForm(BootstrapMixin, forms.ModelForm):
         fields = ('object_type', 'object_id')
 
 
+class NotificationGroupForm(forms.ModelForm):
+    groups = DynamicModelMultipleChoiceField(
+        label=_('Groups'),
+        required=False,
+        queryset=Group.objects.all()
+    )
+    users = DynamicModelMultipleChoiceField(
+        label=_('Users'),
+        required=False,
+        queryset=User.objects.all()
+    )
+
+    class Meta:
+        model = NotificationGroup
+        fields = ('name', 'description', 'groups', 'users')
+
+    def clean(self):
+        super().clean()
+
+        # At least one User or Group must be assigned
+        if not self.cleaned_data['groups'] and not self.cleaned_data['users']:
+            raise forms.ValidationError(_("A notification group specify at least one user or group."))
+
+        return self.cleaned_data
+
+
+class SubscriptionForm(forms.ModelForm):
+    object_type = ContentTypeChoiceField(
+        label=_('Object type'),
+        queryset=ObjectType.objects.with_feature('notifications')
+    )
+
+    class Meta:
+        model = Subscription
+        fields = ('object_type', 'object_id')
+
+
 class WebhookForm(NetBoxModelForm):
 
     fieldsets = (
-        (_('Webhook'), ('name', 'description', 'tags',)),
-        (_('HTTP Request'), (
+        FieldSet('name', 'description', 'tags', name=_('Webhook')),
+        FieldSet(
             'payload_url', 'http_method', 'http_content_type', 'additional_headers', 'body_template', 'secret',
-        )),
-        (_('SSL'), ('ssl_verification', 'ca_file_path')),
+            name=_('HTTP Request')
+        ),
+        FieldSet('ssl_verification', 'ca_file_path', name=_('SSL')),
     )
 
     class Meta:
@@ -249,9 +382,13 @@ class WebhookForm(NetBoxModelForm):
 
 
 class EventRuleForm(NetBoxModelForm):
-    content_types = ContentTypeMultipleChoiceField(
-        label=_('Content types'),
-        queryset=ContentType.objects.with_feature('event_rules'),
+    object_types = ContentTypeMultipleChoiceField(
+        label=_('Object types'),
+        queryset=ObjectType.objects.with_feature('event_rules'),
+    )
+    event_types = forms.MultipleChoiceField(
+        choices=get_event_type_choices(),
+        label=_('Event types')
     )
     action_choice = forms.ChoiceField(
         label=_('Action choice'),
@@ -268,28 +405,17 @@ class EventRuleForm(NetBoxModelForm):
     comments = CommentField()
 
     fieldsets = (
-        (_('Event Rule'), ('name', 'description', 'content_types', 'enabled', 'tags')),
-        (_('Events'), ('type_create', 'type_update', 'type_delete', 'type_job_start', 'type_job_end')),
-        (_('Conditions'), ('conditions',)),
-        (_('Action'), (
-            'action_type', 'action_choice', 'action_object_type', 'action_object_id', 'action_data',
-        )),
+        FieldSet('name', 'description', 'object_types', 'enabled', 'tags', name=_('Event Rule')),
+        FieldSet('event_types', 'conditions', name=_('Triggers')),
+        FieldSet('action_type', 'action_choice', 'action_data', name=_('Action')),
     )
 
     class Meta:
         model = EventRule
         fields = (
-            'content_types', 'name', 'description', 'type_create', 'type_update', 'type_delete', 'type_job_start',
-            'type_job_end', 'enabled', 'conditions', 'action_type', 'action_object_type', 'action_object_id',
-            'action_data', 'comments', 'tags'
+            'object_types', 'name', 'description', 'enabled', 'event_types', 'conditions', 'action_type',
+            'action_object_type', 'action_object_id', 'action_data', 'comments', 'tags'
         )
-        labels = {
-            'type_create': _('Creations'),
-            'type_update': _('Updates'),
-            'type_delete': _('Deletions'),
-            'type_job_start': _('Job executions'),
-            'type_job_end': _('Job terminations'),
-        }
         widgets = {
             'conditions': forms.Textarea(attrs={'class': 'font-monospace'}),
             'action_type': HTMXSelect(),
@@ -298,20 +424,16 @@ class EventRuleForm(NetBoxModelForm):
         }
 
     def init_script_choice(self):
-        choices = []
-        for module in ScriptModule.objects.all():
-            scripts = []
-            for script_name in module.scripts.keys():
-                name = f"{str(module.pk)}:{script_name}"
-                scripts.append((name, script_name))
-            if scripts:
-                choices.append((str(module), scripts))
-        self.fields['action_choice'].choices = choices
-
-        if self.instance.action_type == EventRuleActionChoices.SCRIPT and self.instance.action_parameters:
-            scriptmodule_id = self.instance.action_object_id
-            script_name = self.instance.action_parameters.get('script_name')
-            self.fields['action_choice'].initial = f'{scriptmodule_id}:{script_name}'
+        initial = None
+        if self.instance.action_type == EventRuleActionChoices.SCRIPT:
+            script_id = get_field_value(self, 'action_object_id')
+            initial = Script.objects.get(pk=script_id) if script_id else None
+        self.fields['action_choice'] = DynamicModelChoiceField(
+            label=_('Script'),
+            queryset=Script.objects.all(),
+            required=True,
+            initial=initial
+        )
 
     def init_webhook_choice(self):
         initial = None
@@ -321,6 +443,18 @@ class EventRuleForm(NetBoxModelForm):
         self.fields['action_choice'] = DynamicModelChoiceField(
             label=_('Webhook'),
             queryset=Webhook.objects.all(),
+            required=True,
+            initial=initial
+        )
+
+    def init_notificationgroup_choice(self):
+        initial = None
+        if self.instance.action_type == EventRuleActionChoices.NOTIFICATION:
+            notificationgroup_id = get_field_value(self, 'action_object_id')
+            initial = NotificationGroup.objects.get(pk=notificationgroup_id) if notificationgroup_id else None
+        self.fields['action_choice'] = DynamicModelChoiceField(
+            label=_('Notification group'),
+            queryset=NotificationGroup.objects.all(),
             required=True,
             initial=initial
         )
@@ -337,6 +471,8 @@ class EventRuleForm(NetBoxModelForm):
             self.init_webhook_choice()
         elif action_type == EventRuleActionChoices.SCRIPT:
             self.init_script_choice()
+        elif action_type == EventRuleActionChoices.NOTIFICATION:
+            self.init_notificationgroup_choice()
 
     def clean(self):
         super().clean()
@@ -344,42 +480,33 @@ class EventRuleForm(NetBoxModelForm):
         action_choice = self.cleaned_data.get('action_choice')
         # Webhook
         if self.cleaned_data.get('action_type') == EventRuleActionChoices.WEBHOOK:
-            self.cleaned_data['action_object_type'] = ContentType.objects.get_for_model(action_choice)
+            self.cleaned_data['action_object_type'] = ObjectType.objects.get_for_model(action_choice)
             self.cleaned_data['action_object_id'] = action_choice.id
         # Script
         elif self.cleaned_data.get('action_type') == EventRuleActionChoices.SCRIPT:
-            self.cleaned_data['action_object_type'] = ContentType.objects.get_for_model(
-                ScriptModule,
+            self.cleaned_data['action_object_type'] = ObjectType.objects.get_for_model(
+                Script,
                 for_concrete_model=False
             )
-            module_id, script_name = action_choice.split(":", maxsplit=1)
-            self.cleaned_data['action_object_id'] = module_id
+            self.cleaned_data['action_object_id'] = action_choice.id
+        # Notification
+        elif self.cleaned_data.get('action_type') == EventRuleActionChoices.NOTIFICATION:
+            self.cleaned_data['action_object_type'] = ObjectType.objects.get_for_model(action_choice)
+            self.cleaned_data['action_object_id'] = action_choice.id
 
         return self.cleaned_data
 
-    def save(self, *args, **kwargs):
-        # Set action_parameters on the instance
-        if self.cleaned_data['action_type'] == EventRuleActionChoices.SCRIPT:
-            module_id, script_name = self.cleaned_data.get('action_choice').split(":", maxsplit=1)
-            self.instance.action_parameters = {
-                'script_name': script_name,
-            }
-        else:
-            self.instance.action_parameters = None
 
-        return super().save(*args, **kwargs)
-
-
-class TagForm(BootstrapMixin, forms.ModelForm):
+class TagForm(forms.ModelForm):
     slug = SlugField()
     object_types = ContentTypeMultipleChoiceField(
         label=_('Object types'),
-        queryset=ContentType.objects.with_feature('tags'),
+        queryset=ObjectType.objects.with_feature('tags'),
         required=False
     )
 
     fieldsets = (
-        ('Tag', ('name', 'slug', 'color', 'description', 'object_types')),
+        FieldSet('name', 'slug', 'color', 'description', 'object_types', name=_('Tag')),
     )
 
     class Meta:
@@ -389,7 +516,7 @@ class TagForm(BootstrapMixin, forms.ModelForm):
         ]
 
 
-class ConfigContextForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
+class ConfigContextForm(SyncedDataMixin, forms.ModelForm):
     regions = DynamicModelMultipleChoiceField(
         label=_('Regions'),
         queryset=Region.objects.all(),
@@ -461,12 +588,13 @@ class ConfigContextForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
     )
 
     fieldsets = (
-        (_('Config Context'), ('name', 'weight', 'description', 'data', 'is_active')),
-        (_('Data Source'), ('data_source', 'data_file', 'auto_sync_enabled')),
-        (_('Assignment'), (
+        FieldSet('name', 'weight', 'description', 'data', 'is_active', name=_('Config Context')),
+        FieldSet('data_source', 'data_file', 'auto_sync_enabled', name=_('Data Source')),
+        FieldSet(
             'regions', 'site_groups', 'sites', 'locations', 'device_types', 'roles', 'platforms', 'cluster_types',
             'cluster_groups', 'clusters', 'tenant_groups', 'tenants', 'tags',
-        )),
+            name=_('Assignment')
+        ),
     )
 
     class Meta:
@@ -500,7 +628,7 @@ class ConfigContextForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
         return self.cleaned_data
 
 
-class ConfigTemplateForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
+class ConfigTemplateForm(SyncedDataMixin, forms.ModelForm):
     tags = DynamicModelMultipleChoiceField(
         label=_('Tags'),
         queryset=Tag.objects.all(),
@@ -513,9 +641,9 @@ class ConfigTemplateForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
     )
 
     fieldsets = (
-        (_('Config Template'), ('name', 'description', 'environment_params', 'tags')),
-        (_('Content'), ('template_code',)),
-        (_('Data Source'), ('data_source', 'data_file', 'auto_sync_enabled')),
+        FieldSet('name', 'description', 'environment_params', 'tags', name=_('Config Template')),
+        FieldSet('template_code', name=_('Content')),
+        FieldSet('data_source', 'data_file', 'auto_sync_enabled', name=_('Data Source')),
     )
 
     class Meta:
@@ -544,7 +672,10 @@ class ConfigTemplateForm(BootstrapMixin, SyncedDataMixin, forms.ModelForm):
         return self.cleaned_data
 
 
-class ImageAttachmentForm(BootstrapMixin, forms.ModelForm):
+class ImageAttachmentForm(forms.ModelForm):
+    fieldsets = (
+        FieldSet(ObjectAttribute('parent'), 'name', 'image'),
+    )
 
     class Meta:
         model = ImageAttachment
@@ -556,8 +687,7 @@ class ImageAttachmentForm(BootstrapMixin, forms.ModelForm):
 class JournalEntryForm(NetBoxModelForm):
     kind = forms.ChoiceField(
         label=_('Kind'),
-        choices=add_blank_choice(JournalEntryKindChoices),
-        required=False
+        choices=JournalEntryKindChoices
     )
     comments = CommentField()
 

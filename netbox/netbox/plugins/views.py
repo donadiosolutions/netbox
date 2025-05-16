@@ -2,25 +2,12 @@ from collections import OrderedDict
 
 from django.apps import apps
 from django.conf import settings
-from django.shortcuts import render
 from django.urls.exceptions import NoReverseMatch
-from django.views.generic import View
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
 from rest_framework.views import APIView
-
-
-class InstalledPluginsAdminView(View):
-    """
-    Admin view for listing all installed plugins
-    """
-    def get(self, request):
-        plugins = [apps.get_app_config(plugin) for plugin in settings.PLUGINS]
-        return render(request, 'extras/admin/plugins_list.html', {
-            'plugins': plugins,
-        })
 
 
 @extend_schema(exclude=True)

@@ -6,7 +6,7 @@ from django.db.models.signals import m2m_changed, pre_delete, post_save
 
 from extras.choices import ChangeActionChoices
 from extras.models import StagedChange
-from utilities.utils import serialize_object
+from utilities.serialization import serialize_object
 
 logger = logging.getLogger('netbox.staging')
 
@@ -80,7 +80,7 @@ class checkout:
         Create Change instances for all actions stored in the queue.
         """
         if not self.queue:
-            logger.debug(f"No queued changes; aborting")
+            logger.debug("No queued changes; aborting")
             return
         logger.debug(f"Processing {len(self.queue)} queued changes")
 

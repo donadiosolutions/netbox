@@ -6,7 +6,7 @@ from svgwrite.text import Text
 from django.conf import settings
 
 from dcim.constants import CABLE_TRACE_SVG_DEFAULT_WIDTH
-from utilities.utils import foreground_color
+from utilities.html import foreground_color
 
 __all__ = (
     'CableTraceSVG',
@@ -162,6 +162,9 @@ class CableTraceSVG:
                 location_label += f' / {instance.location}'
             if instance.rack:
                 location_label += f' / {instance.rack}'
+            if instance.position:
+                location_label += f' / {instance.get_face_display()}'
+                location_label += f' / U{instance.position}'
             labels.append(location_label)
         elif instance._meta.model_name == 'circuit':
             labels[0] = f'Circuit {instance}'
@@ -222,8 +225,7 @@ class CableTraceSVG:
         """
         nodes_height = 0
         nodes = []
-        # Sort them by name to make renders more readable
-        for i, term in enumerate(sorted(terminations, key=lambda x: str(x))):
+        for i, term in enumerate(terminations):
             node = Node(
                 position=(offset_x + i * width, self.cursor),
                 width=width,
@@ -359,7 +361,7 @@ class CableTraceSVG:
             self.cursor += CABLE_HEIGHT
 
             # Connector (a Cable or WirelessLink)
-            if links:
+            if links and far_ends:
 
                 obj_list = {end.parent_object for end in far_ends}
                 parent_object_nodes, far_terminations = self.draw_far_objects(obj_list, far_ends)
@@ -393,6 +395,8 @@ class CableTraceSVG:
                         labels = [f"{cable}"] if len(links) > 2 else [f"Wireless {cable}", cable.get_status_display()]
                         if cable.ssid:
                             description.append(f"{cable.ssid}")
+                        if cable.distance and cable.distance_unit:
+                            description.append(f"{cable.distance} {cable.get_distance_unit_display()}")
                         near = [term for term in near_terminations if term.object == cable.interface_a]
                         far = [term for term in far_terminations if term.object == cable.interface_b]
                         if not (near and far):

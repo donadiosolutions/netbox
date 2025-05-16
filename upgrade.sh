@@ -3,27 +3,34 @@
 # its most recent release.
 
 # This script will invoke Python with the value of the PYTHON environment
-# variable (if set), or fall back to "python3". Note that NetBox v3.2+ requires
-# Python 3.8 or later.
+# variable (if set), or fall back to "python3". Note that NetBox v4.0+ requires
+# Python 3.10 or later.
+
+# Parse arguments
+if [[ "$1" == "--readonly" ]]; then
+  READONLY_MODE=true
+else
+  READONLY_MODE=false
+fi
 
 cd "$(dirname "$0")"
 
-NETBOX_VERSION="$(grep ^VERSION netbox/netbox/settings.py | cut -d\' -f2)"
+NETBOX_VERSION="$(grep ^version netbox/release.yaml | cut -d \" -f2)"
 echo "You are installing (or upgrading to) NetBox version ${NETBOX_VERSION}"
 
 VIRTUALENV="$(pwd -P)/venv"
 PYTHON="${PYTHON:-python3}"
 
 # Validate the minimum required Python version
-COMMAND="${PYTHON} -c 'import sys; exit(1 if sys.version_info < (3, 8) else 0)'"
+COMMAND="${PYTHON} -c 'import sys; exit(1 if sys.version_info < (3, 10) else 0)'"
 PYTHON_VERSION=$(eval "${PYTHON} -V")
 eval $COMMAND || {
   echo "--------------------------------------------------------------------"
   echo "ERROR: Unsupported Python version: ${PYTHON_VERSION}. NetBox requires"
-  echo "Python 3.8 or later. To specify an alternate Python executable, set"
+  echo "Python 3.10 or later. To specify an alternate Python executable, set"
   echo "the PYTHON environment variable. For example:"
   echo ""
-  echo "  sudo PYTHON=/usr/bin/python3.8 ./upgrade.sh"
+  echo "  sudo PYTHON=/usr/bin/python3.10 ./upgrade.sh"
   echo ""
   echo "To show your current Python version: ${PYTHON} -V"
   echo "--------------------------------------------------------------------"
@@ -33,7 +40,7 @@ echo "Using ${PYTHON_VERSION}"
 
 # Remove the existing virtual environment (if any)
 if [ -d "$VIRTUALENV" ]; then
-  COMMAND="rm -rf ${VIRTUALENV}"
+  COMMAND="rm -rf \"${VIRTUALENV}\""
   echo "Removing old virtual environment..."
   eval $COMMAND
 else
@@ -41,7 +48,7 @@ else
 fi
 
 # Create a new virtual environment
-COMMAND="${PYTHON} -m venv ${VIRTUALENV}"
+COMMAND="${PYTHON} -m venv \"${VIRTUALENV}\""
 echo "Creating a new virtual environment at ${VIRTUALENV}..."
 eval $COMMAND || {
   echo "--------------------------------------------------------------------"
@@ -83,9 +90,14 @@ else
 fi
 
 # Apply any database migrations
-COMMAND="python3 netbox/manage.py migrate"
-echo "Applying database migrations ($COMMAND)..."
-eval $COMMAND || exit 1
+if [ "$READONLY_MODE" = true ]; then
+  echo "Skipping database migrations (read-only mode)"
+  exit 0
+else
+  COMMAND="python3 netbox/manage.py migrate"
+  echo "Applying database migrations ($COMMAND)..."
+  eval $COMMAND || exit 1
+fi
 
 # Trace any missing cable paths (not typically needed)
 COMMAND="python3 netbox/manage.py trace_paths --no-input"

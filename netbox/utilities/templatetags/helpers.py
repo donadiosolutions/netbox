@@ -1,28 +1,23 @@
-import datetime
 import json
-from urllib.parse import quote
 from typing import Dict, Any
+from urllib.parse import quote
 
 from django import template
-from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
-from django.template.defaultfilters import date
 from django.urls import NoReverseMatch, reverse
-from django.utils import timezone
-from django.utils.safestring import mark_safe
 
+from core.models import ObjectType
 from utilities.forms import get_selected_values, TableConfigForm
-from utilities.utils import get_viewname
+from utilities.views import get_viewname
+from netbox.settings import DISK_BASE_UNIT, RAM_BASE_UNIT
 
 __all__ = (
-    'annotated_date',
-    'annotated_now',
     'applied_filters',
     'as_range',
     'divide',
     'get_item',
     'get_key',
-    'humanize_megabytes',
+    'humanize_disk_megabytes',
+    'humanize_ram_megabytes',
     'humanize_speed',
     'icon_from_status',
     'kg_to_pounds',
@@ -91,46 +86,42 @@ def humanize_speed(speed):
         return '{} Kbps'.format(speed)
 
 
-@register.filter()
-def humanize_megabytes(mb):
+def _humanize_megabytes(mb, divisor=1000):
     """
-    Express a number of megabytes in the most suitable unit (e.g. gigabytes or terabytes).
+    Express a number of megabytes in the most suitable unit (e.g. gigabytes, terabytes, etc.).
     """
     if not mb:
-        return ''
-    if not mb % 1048576:  # 1024^2
-        return f'{int(mb / 1048576)} TB'
-    if not mb % 1024:
-        return f'{int(mb / 1024)} GB'
-    return f'{mb} MB'
+        return ""
+
+    PB_SIZE = divisor**3
+    TB_SIZE = divisor**2
+    GB_SIZE = divisor
+
+    if mb >= PB_SIZE:
+        return f"{mb / PB_SIZE:.2f} PB"
+    if mb >= TB_SIZE:
+        return f"{mb / TB_SIZE:.2f} TB"
+    if mb >= GB_SIZE:
+        return f"{mb / GB_SIZE:.2f} GB"
+    return f"{mb} MB"
 
 
-@register.filter(expects_localtime=True)
-def annotated_date(date_value):
+@register.filter()
+def humanize_disk_megabytes(mb):
     """
-    Returns date as HTML span with short date format as the content and the
-    (long) date format as the title.
+    Express a number of megabytes in the most suitable unit (e.g. gigabytes, terabytes, etc.).
+    Use the DISK_BASE_UNIT setting to determine the divisor. Default is 1000.
     """
-    if not date_value:
-        return ''
-
-    if type(date_value) is datetime.date:
-        long_ts = date(date_value, 'DATE_FORMAT')
-        short_ts = date(date_value, 'SHORT_DATE_FORMAT')
-    else:
-        long_ts = date(date_value, 'DATETIME_FORMAT')
-        short_ts = date(date_value, 'SHORT_DATETIME_FORMAT')
-
-    return mark_safe(f'<span title="{long_ts}">{short_ts}</span>')
+    return _humanize_megabytes(mb, DISK_BASE_UNIT)
 
 
-@register.simple_tag
-def annotated_now():
+@register.filter()
+def humanize_ram_megabytes(mb):
     """
-    Returns the current date piped through the annotated_date filter.
+    Express a number of megabytes in the most suitable unit (e.g. gigabytes, terabytes, etc.).
+    Use the RAM_BASE_UNIT setting to determine the divisor. Default is 1000.
     """
-    tzinfo = timezone.get_current_timezone() if settings.USE_TZ else None
-    return annotated_date(datetime.datetime.now(tz=tzinfo))
+    return _humanize_megabytes(mb, RAM_BASE_UNIT)
 
 
 @register.filter()
@@ -309,6 +300,10 @@ def applied_filters(context, model, form, query_params):
         if filter_name not in querydict:
             continue
 
+        # Skip saved filters, as they're displayed alongside the quick search widget
+        if filter_name == 'filter_id':
+            continue
+
         bound_field = form.fields[filter_name].get_bound_field(form, filter_name)
         querydict.pop(filter_name)
         display_value = ', '.join([str(v) for v in get_selected_values(form, filter_name)])
@@ -322,10 +317,10 @@ def applied_filters(context, model, form, query_params):
 
     save_link = None
     if user.has_perm('extras.add_savedfilter') and 'filter_id' not in context['request'].GET:
-        content_type = ContentType.objects.get_for_model(model).pk
+        object_type = ObjectType.objects.get_for_model(model).pk
         parameters = json.dumps(dict(context['request'].GET.lists()))
         url = reverse('extras:savedfilter_add')
-        save_link = f"{url}?content_types={content_type}&parameters={quote(parameters)}"
+        save_link = f"{url}?object_types={object_type}&parameters={quote(parameters)}"
 
     return {
         'applied_filters': applied_filters,

@@ -34,7 +34,7 @@ class Command(BaseCommand):
         Draw a simple progress bar 20 increments wide illustrating the specified percentage.
         """
         bar_size = int(percentage / 5)
-        self.stdout.write(f"\r  [{'#' * bar_size}{' ' * (20-bar_size)}] {int(percentage)}%", ending='')
+        self.stdout.write(f"\r  [{'#' * bar_size}{' ' * (20 - bar_size)}] {int(percentage)}%", ending='')
 
     def handle(self, *model_names, **options):
 
@@ -60,7 +60,7 @@ class Command(BaseCommand):
             self.stdout.write((self.style.SUCCESS(f'  Deleted {deleted_count} paths')))
 
             # Reinitialize the model's PK sequence
-            self.stdout.write(f'Resetting database sequence for CablePath model')
+            self.stdout.write('Resetting database sequence for CablePath model')
             sequence_sql = connection.ops.sequence_reset_sql(no_style(), [CablePath])
             with connection.cursor() as cursor:
                 for sql in sequence_sql:

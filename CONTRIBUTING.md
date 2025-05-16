@@ -40,7 +40,7 @@ NetBox users are welcome to participate in either role, on stage or in the crowd
 
 * First, ensure that you're running the [latest stable version](https://github.com/netbox-community/netbox/releases) of NetBox. If you're running an older version, it's likely that the bug has already been fixed.
 
-* Next, search our [issues list](https://github.com/netbox-community/netbox/issues?q=is%3Aissue) to see if the bug you've found has already been reported. If you come across a bug report that seems to match, please click "add a reaction" in the top right corner of the issue and add a thumbs up (:thumbsup:). This will help draw more attention to it. Any comments you can add to provide additional information or context would also be much appreciated.
+* Next, search our [issues list](https://github.com/netbox-community/netbox/issues?q=is%3Aissue) to see if the bug you've found has already been reported. If you come across a bug report that seems to match, please click "add a reaction" in the bottom left corner of the issue and add a thumbs up ( :thumbsup: ). This will help draw more attention to it. Any comments you can add to provide additional information or context would also be much appreciated.
 
 * If you can't find any existing issues (open or closed) that seem to match yours, you're welcome to [submit a new bug report](https://github.com/netbox-community/netbox/issues/new?label=type%3A+bug&template=bug_report.yaml). Be sure to complete the entire report template, including detailed steps that someone triaging your issue can follow to confirm the reported behavior. (If we're not able to replicate the bug based on the information provided, we'll ask for additional detail.)
 
@@ -56,7 +56,9 @@ intake policy](https://github.com/netbox-community/netbox/wiki/Issue-Intake-Poli
 
 ## :bulb: Feature Requests
 
-* First, check the GitHub [issues list](https://github.com/netbox-community/netbox/issues?q=is%3Aissue) to see if the feature you have in mind has already been proposed. If you happen to find an open feature request that matches your idea, click "add a reaction" in the top right corner of the issue and add a thumbs up (:thumbsup:). This ensures that the issue has a better chance of receiving attention. Also feel free to add a comment with any additional justification for the feature.
+* First, check the GitHub [issues list](https://github.com/netbox-community/netbox/issues?q=is%3Aissue) to see if the feature you have in mind has already been proposed. If you happen to find an open feature request that matches your idea, click "add a reaction" in the top right corner of the issue and add a thumbs up ( :thumbsup: ). This ensures that the issue has a better chance of receiving attention. Also feel free to add a comment with any additional justification for the feature.
+
+* Please don't submit duplicate issues! Sometimes we reject feature requests, for various reasons. Even if you disagree with those reasons, please **do not** submit a duplicate feature request. It is very disrepectful of the maintainers' time, and you may be barred from opening future issues.
 
 * If you have a rough idea that's not quite ready for formal submission yet, start a [GitHub discussion](https://github.com/netbox-community/netbox/discussions) instead. This is a great way to test the viability and narrow down the scope of a new feature prior to submitting a formal proposal, and can serve to generate interest in your idea from other community members.
 
@@ -82,7 +84,7 @@ intake policy](https://github.com/netbox-community/netbox/wiki/Issue-Intake-Poli
 
 * It's very important that you not submit a pull request until a relevant issue has been opened **and** assigned to you. Otherwise, you risk wasting time on work that may ultimately not be needed.
 
-* New pull requests should generally be based off of the `develop` branch, rather than `master`. The `develop` branch is used for ongoing development, while `master` is used for tracking stable releases. (If you're developing for an upcoming minor release, use `feature` instead.)
+* New pull requests should generally be based off of the `main` branch. This branch, in keeping with the [trunk-based development](https://trunkbaseddevelopment.com/) approach, is used for ongoing development and bug fixes and always represents the newest stable code, from which releases are periodically branched. (If you're developing for an upcoming minor release, use `feature` instead.)
 
 * In most cases, it is not necessary to add a changelog entry: A maintainer will take care of this when the PR is merged. (This helps avoid merge conflicts resulting from multiple PRs being submitted simultaneously.)
 

@@ -1,7 +1,7 @@
 import { initForms } from './forms';
 import { initBootstrap } from './bs';
 import { initQuickSearch } from './search';
-import { initSelect } from './select';
+import { initSelects } from './select';
 import { initButtons } from './buttons';
 import { initColorMode } from './colorMode';
 import { initMessages } from './messages';
@@ -12,8 +12,8 @@ import { initInterfaceTable } from './tables';
 import { initSideNav } from './sidenav';
 import { initDashboard } from './dashboard';
 import { initRackElevation } from './racks';
-import { initLinks } from './links';
 import { initHtmx } from './htmx';
+import { initSavedFilterSelect } from './forms/savedFiltersSelect';
 
 function initDocument(): void {
   for (const init of [
@@ -22,7 +22,7 @@ function initDocument(): void {
     initMessages,
     initForms,
     initQuickSearch,
-    initSelect,
+    initSelects,
     initDateSelector,
     initButtons,
     initClipboard,
@@ -31,8 +31,8 @@ function initDocument(): void {
     initSideNav,
     initDashboard,
     initRackElevation,
-    initLinks,
     initHtmx,
+    initSavedFilterSelect,
   ]) {
     init();
   }

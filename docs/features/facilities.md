@@ -46,7 +46,7 @@ Regions will always be listed alphabetically by name within each parent, and the
 
 Like regions, site groups can be arranged in a recursive hierarchy for grouping sites. However, whereas regions are intended for geographic organization, site groups may be used for functional grouping. For example, you might classify sites as corporate, branch, or customer sites in addition to where they are physically located.
 
-The use of both regions and site groups affords to independent but complementary dimensions across which sites can be organized.
+The use of both regions and site groups affords two independent but complementary dimensions across which sites can be organized.
 
 ## Sites
 
@@ -55,6 +55,10 @@ A site typically represents a building within a region and/or site group. Each s
 ## Locations
 
 A location can be any logical subdivision within a building, such as a floor or room. Like regions and site groups, locations can be nested into a self-recursive hierarchy for maximum flexibility. And like sites, each location has an operational status assigned to it.
+
+## Rack Types
+
+A rack type represents a unique specification of a rack which exists in the real world. Each rack type can be setup with weight, height, and unit ordering. New racks of this type can then be created in NetBox, and any associated specifications will be automatically replicated from the device type.
 
 ## Racks
 

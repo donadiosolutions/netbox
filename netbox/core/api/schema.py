@@ -2,16 +2,15 @@ import re
 import typing
 from collections import OrderedDict
 
-from drf_spectacular.extensions import OpenApiSerializerFieldExtension
+from drf_spectacular.extensions import OpenApiSerializerFieldExtension, OpenApiSerializerExtension, _SchemaType
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.plumbing import (
     build_basic_type, build_choice_field, build_media_type_object, build_object_type, get_doc,
 )
 from drf_spectacular.types import OpenApiTypes
-from rest_framework import serializers
-from rest_framework.relations import ManyRelatedField
+from drf_spectacular.utils import Direction
 
-from netbox.api.fields import ChoiceField, SerializedPKRelatedField
+from netbox.api.fields import ChoiceField
 from netbox.api.serializers import WritableNestedSerializer
 
 # see netbox.api.routers.NetBoxRouter
@@ -37,7 +36,10 @@ class ChoiceFieldFix(OpenApiSerializerFieldExtension):
 
         elif direction == "response":
             value = build_cf
-            label = {**build_basic_type(OpenApiTypes.STR), "enum": list(OrderedDict.fromkeys(self.target.choices.values()))}
+            label = {
+                **build_basic_type(OpenApiTypes.STR),
+                "enum": list(OrderedDict.fromkeys(self.target.choices.values()))
+            }
 
             return build_object_type(
                 properties={
@@ -126,9 +128,18 @@ class NetBoxAutoSchema(AutoSchema):
 
         return response_serializers
 
+    def _get_serializer_name(self, serializer, direction, bypass_extensions=False) -> str:
+        name = super()._get_serializer_name(serializer, direction, bypass_extensions)
+
+        # If this serializer is nested, prepend its name with "Brief"
+        if getattr(serializer, 'nested', False):
+            name = f'Brief{name}'
+
+        return name
+
     def get_serializer_ref_name(self, serializer):
         # from drf-yasg.utils
-        """Get serializer's ref_name (or None for ModelSerializer if it is named 'NestedSerializer')
+        """Get serializer's ref_name
         :param serializer: Serializer instance
         :return: Serializer's ``ref_name`` or ``None`` for inline serializer
         :rtype: str or None
@@ -137,8 +148,6 @@ class NetBoxAutoSchema(AutoSchema):
         serializer_name = type(serializer).__name__
         if hasattr(serializer_meta, 'ref_name'):
             ref_name = serializer_meta.ref_name
-        elif serializer_name == 'NestedSerializer' and isinstance(serializer, serializers.ModelSerializer):
-            ref_name = None
         else:
             ref_name = serializer_name
             if ref_name.endswith('Serializer'):
@@ -150,13 +159,14 @@ class NetBoxAutoSchema(AutoSchema):
         fields = {} if hasattr(serializer, 'child') else serializer.fields
         remove_fields = []
 
+        # If you get a failure here for "AttributeError: 'cached_property' object has no attribute 'items'"
+        # it is probably because you are using a viewsets.ViewSet for the API View and are defining a
+        # serializer_class. You will also need to define a get_serializer() method like for GenericAPIView.
         for child_name, child in fields.items():
             # read_only fields don't need to be in writable (write only) serializers
             if 'read_only' in dir(child) and child.read_only:
                 remove_fields.append(child_name)
             if isinstance(child, (ChoiceField, WritableNestedSerializer)):
-                properties[child_name] = None
-            elif isinstance(child, ManyRelatedField) and isinstance(child.child_relation, SerializedPKRelatedField):
                 properties[child_name] = None
 
         if not properties:
@@ -257,3 +267,51 @@ class NetBoxAutoSchema(AutoSchema):
         if '{id}' in self.path:
             return f"{self.method.capitalize()} a {model_name} object."
         return f"{self.method.capitalize()} a list of {model_name} objects."
+
+
+class FixSerializedPKRelatedField(OpenApiSerializerFieldExtension):
+    target_class = 'netbox.api.fields.SerializedPKRelatedField'
+
+    def map_serializer_field(self, auto_schema, direction):
+        if direction == "response":
+            component = auto_schema.resolve_serializer(self.target.serializer, direction)
+            return component.ref if component else None
+        else:
+            return build_basic_type(OpenApiTypes.INT)
+
+
+class FixIntegerRangeSerializerSchema(OpenApiSerializerExtension):
+    target_class = 'netbox.api.fields.IntegerRangeSerializer'
+
+    def map_serializer(self, auto_schema: 'AutoSchema', direction: Direction) -> _SchemaType:
+        return {
+            'type': 'array',
+            'items': {
+                'type': 'array',
+                'items': {
+                    'type': 'integer',
+                },
+                'minItems': 2,
+                'maxItems': 2,
+            },
+        }
+
+
+# Nested models can be passed by ID in requests
+# The logic for this is handled in `BaseModelSerializer.to_internal_value`
+class FixWritableNestedSerializerAllowPK(OpenApiSerializerFieldExtension):
+    target_class = 'netbox.api.serializers.BaseModelSerializer'
+    match_subclasses = True
+
+    def map_serializer_field(self, auto_schema, direction):
+        schema = auto_schema._map_serializer_field(self.target, direction, bypass_extensions=True)
+        if schema is None:
+            return schema
+        if direction == 'request' and self.target.nested:
+            return {
+                'oneOf': [
+                    build_basic_type(OpenApiTypes.INT),
+                    schema,
+                ]
+            }
+        return schema

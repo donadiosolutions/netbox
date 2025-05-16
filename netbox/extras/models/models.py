@@ -3,27 +3,30 @@ import urllib.parse
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.postgres.fields import ArrayField
 from django.core.validators import ValidationError
 from django.db import models
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.formats import date_format
 from django.utils.translation import gettext_lazy as _
 from rest_framework.utils.encoders import JSONEncoder
 
-from core.models import ContentType
+from core.models import ObjectType
 from extras.choices import *
 from extras.conditions import ConditionSet
 from extras.constants import *
 from extras.utils import image_upload
 from netbox.config import get_config
+from netbox.events import get_event_type_choices
 from netbox.models import ChangeLoggedModel
 from netbox.models.features import (
     CloningMixin, CustomFieldsMixin, CustomLinksMixin, ExportTemplatesMixin, SyncedDataMixin, TagsMixin,
 )
+from utilities.html import clean_html
+from utilities.jinja2 import render_jinja2
+from utilities.querydict import dict_to_querydict
 from utilities.querysets import RestrictedQuerySet
-from utilities.utils import clean_html, dict_to_querydict, render_jinja2
 
 __all__ = (
     'Bookmark',
@@ -43,9 +46,9 @@ class EventRule(CustomFieldsMixin, ExportTemplatesMixin, TagsMixin, ChangeLogged
     specific type of object is created, modified, or deleted. The action to be taken might entail transmitting a
     webhook or executing a custom script.
     """
-    content_types = models.ManyToManyField(
-        to='contenttypes.ContentType',
-        related_name='eventrules',
+    object_types = models.ManyToManyField(
+        to='core.ObjectType',
+        related_name='event_rules',
         verbose_name=_('object types'),
         help_text=_("The object(s) to which this rule applies.")
     )
@@ -59,30 +62,9 @@ class EventRule(CustomFieldsMixin, ExportTemplatesMixin, TagsMixin, ChangeLogged
         max_length=200,
         blank=True
     )
-    type_create = models.BooleanField(
-        verbose_name=_('on create'),
-        default=False,
-        help_text=_("Triggers when a matching object is created.")
-    )
-    type_update = models.BooleanField(
-        verbose_name=_('on update'),
-        default=False,
-        help_text=_("Triggers when a matching object is updated.")
-    )
-    type_delete = models.BooleanField(
-        verbose_name=_('on delete'),
-        default=False,
-        help_text=_("Triggers when a matching object is deleted.")
-    )
-    type_job_start = models.BooleanField(
-        verbose_name=_('on job start'),
-        default=False,
-        help_text=_("Triggers when a job for a matching object is started.")
-    )
-    type_job_end = models.BooleanField(
-        verbose_name=_('on job end'),
-        default=False,
-        help_text=_("Triggers when a job for a matching object terminates.")
+    event_types = ArrayField(
+        base_field=models.CharField(max_length=50, choices=get_event_type_choices),
+        help_text=_("The types of event which will trigger this rule.")
     )
     enabled = models.BooleanField(
         verbose_name=_('enabled'),
@@ -115,10 +97,6 @@ class EventRule(CustomFieldsMixin, ExportTemplatesMixin, TagsMixin, ChangeLogged
         ct_field='action_object_type',
         fk_field='action_object_id'
     )
-    action_parameters = models.JSONField(
-        blank=True,
-        null=True
-    )
     action_data = models.JSONField(
         verbose_name=_('data'),
         blank=True,
@@ -146,14 +124,6 @@ class EventRule(CustomFieldsMixin, ExportTemplatesMixin, TagsMixin, ChangeLogged
 
     def clean(self):
         super().clean()
-
-        # At least one action type must be selected
-        if not any([
-            self.type_create, self.type_update, self.type_delete, self.type_job_start, self.type_job_end
-        ]):
-            raise ValidationError(
-                _("At least one event type must be selected: create, update, delete, job start, and/or job end.")
-            )
 
         # Validate that any conditions are in the correct format
         if self.conditions:
@@ -317,8 +287,8 @@ class CustomLink(CloningMixin, ExportTemplatesMixin, ChangeLoggedModel):
     A custom link to an external representation of a NetBox object. The link text and URL fields accept Jinja2 template
     code to be rendered with an object as context.
     """
-    content_types = models.ManyToManyField(
-        to='contenttypes.ContentType',
+    object_types = models.ManyToManyField(
+        to='core.ObjectType',
         related_name='custom_links',
         help_text=_('The object type(s) to which this link applies.')
     )
@@ -363,7 +333,7 @@ class CustomLink(CloningMixin, ExportTemplatesMixin, ChangeLoggedModel):
     )
 
     clone_fields = (
-        'content_types', 'enabled', 'weight', 'group_name', 'button_class', 'new_window',
+        'object_types', 'enabled', 'weight', 'group_name', 'button_class', 'new_window',
     )
 
     class Meta:
@@ -413,8 +383,8 @@ class CustomLink(CloningMixin, ExportTemplatesMixin, ChangeLoggedModel):
 
 
 class ExportTemplate(SyncedDataMixin, CloningMixin, ExportTemplatesMixin, ChangeLoggedModel):
-    content_types = models.ManyToManyField(
-        to='contenttypes.ContentType',
+    object_types = models.ManyToManyField(
+        to='core.ObjectType',
         related_name='export_templates',
         help_text=_('The object type(s) to which this template applies.')
     )
@@ -452,7 +422,7 @@ class ExportTemplate(SyncedDataMixin, CloningMixin, ExportTemplatesMixin, Change
     )
 
     clone_fields = (
-        'content_types', 'template_code', 'mime_type', 'file_extension', 'as_attachment',
+        'object_types', 'template_code', 'mime_type', 'file_extension', 'as_attachment',
     )
 
     class Meta:
@@ -522,8 +492,8 @@ class SavedFilter(CloningMixin, ExportTemplatesMixin, ChangeLoggedModel):
     """
     A set of predefined keyword parameters that can be reused to filter for specific objects.
     """
-    content_types = models.ManyToManyField(
-        to='contenttypes.ContentType',
+    object_types = models.ManyToManyField(
+        to='core.ObjectType',
         related_name='saved_filters',
         help_text=_('The object type(s) to which this filter applies.')
     )
@@ -565,7 +535,7 @@ class SavedFilter(CloningMixin, ExportTemplatesMixin, ChangeLoggedModel):
     )
 
     clone_fields = (
-        'content_types', 'weight', 'enabled', 'parameters',
+        'object_types', 'weight', 'enabled', 'parameters',
     )
 
     class Meta:
@@ -602,13 +572,13 @@ class ImageAttachment(ChangeLoggedModel):
     """
     An uploaded image which is associated with an object.
     """
-    content_type = models.ForeignKey(
+    object_type = models.ForeignKey(
         to='contenttypes.ContentType',
         on_delete=models.CASCADE
     )
     object_id = models.PositiveBigIntegerField()
     parent = GenericForeignKey(
-        ct_field='content_type',
+        ct_field='object_type',
         fk_field='object_id'
     )
     image = models.ImageField(
@@ -630,12 +600,12 @@ class ImageAttachment(ChangeLoggedModel):
 
     objects = RestrictedQuerySet.as_manager()
 
-    clone_fields = ('content_type', 'object_id')
+    clone_fields = ('object_type', 'object_id')
 
     class Meta:
         ordering = ('name', 'pk')  # name may be non-unique
         indexes = (
-            models.Index(fields=('content_type', 'object_id')),
+            models.Index(fields=('object_type', 'object_id')),
         )
         verbose_name = _('image attachment')
         verbose_name_plural = _('image attachments')
@@ -650,9 +620,9 @@ class ImageAttachment(ChangeLoggedModel):
         super().clean()
 
         # Validate the assigned object type
-        if self.content_type not in ContentType.objects.with_feature('image_attachments'):
+        if self.object_type not in ObjectType.objects.with_feature('image_attachments'):
             raise ValidationError(
-                _("Image attachments cannot be assigned to this object type ({type}).").format(type=self.content_type)
+                _("Image attachments cannot be assigned to this object type ({type}).").format(type=self.object_type)
             )
 
     def delete(self, *args, **kwargs):
@@ -734,7 +704,10 @@ class JournalEntry(CustomFieldsMixin, CustomLinksMixin, TagsMixin, ExportTemplat
 
     def __str__(self):
         created = timezone.localtime(self.created)
-        return f"{date_format(created, format='SHORT_DATETIME_FORMAT')} ({self.get_kind_display()})"
+        return (
+            f"{created.date().isoformat()} {created.time().isoformat(timespec='minutes')} "
+            f"({self.get_kind_display()})"
+        )
 
     def get_absolute_url(self):
         return reverse('extras:journalentry', args=[self.pk])
@@ -743,7 +716,7 @@ class JournalEntry(CustomFieldsMixin, CustomLinksMixin, TagsMixin, ExportTemplat
         super().clean()
 
         # Validate the assigned object type
-        if self.assigned_object_type not in ContentType.objects.with_feature('journaling'):
+        if self.assigned_object_type not in ObjectType.objects.with_feature('journaling'):
             raise ValidationError(
                 _("Journaling is not supported for this object type ({type}).").format(type=self.assigned_object_type)
             )
@@ -799,7 +772,7 @@ class Bookmark(models.Model):
         super().clean()
 
         # Validate the assigned object type
-        if self.object_type not in ContentType.objects.with_feature('bookmarks'):
+        if self.object_type not in ObjectType.objects.with_feature('bookmarks'):
             raise ValidationError(
                 _("Bookmarks cannot be assigned to this object type ({type}).").format(type=self.object_type)
             )

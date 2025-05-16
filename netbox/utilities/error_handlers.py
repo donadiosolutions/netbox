@@ -1,8 +1,19 @@
+import platform
+import sys
+
+from django.conf import settings
 from django.contrib import messages
 from django.db.models import ProtectedError, RestrictedError
+from django.http import JsonResponse
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
+from rest_framework import status
+
+__all__ = (
+    'handle_protectederror',
+    'handle_rest_api_exception',
+)
 
 
 def handle_protectederror(obj_list, request, e):
@@ -28,7 +39,21 @@ def handle_protectederror(obj_list, request, e):
         if hasattr(dependent, 'get_absolute_url'):
             dependent_objects.append(f'<a href="{dependent.get_absolute_url()}">{escape(dependent)}</a>')
         else:
-            dependent_objects.append(str(dependent))
+            dependent_objects.append(escape(str(dependent)))
     err_message += ', '.join(dependent_objects)
 
     messages.error(request, mark_safe(err_message))
+
+
+def handle_rest_api_exception(request, *args, **kwargs):
+    """
+    Handle exceptions and return a useful error message for REST API requests.
+    """
+    type_, error = sys.exc_info()[:2]
+    data = {
+        'error': str(error),
+        'exception': type_.__name__,
+        'netbox_version': settings.RELEASE.full_version,
+        'python_version': platform.python_version(),
+    }
+    return JsonResponse(data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

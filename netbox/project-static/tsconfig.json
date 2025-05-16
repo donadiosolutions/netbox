@@ -1,9 +1,10 @@
 {
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
+    // Needed for tom-select/src/vanilla.ts
+    "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "moduleResolution": "node",
-    "noUnusedParameters": true,
     "esModuleInterop": true,
     "isolatedModules": true,
     "noUnusedLocals": true,

@@ -1,9 +1,10 @@
 # Event Rules
 
-NetBox includes the ability to execute certain functions in response to internal object changes. These include:
+NetBox includes the ability to automatically perform certain functions in response to internal events. These include:
 
-* [Scripts](../customization/custom-scripts.md) execution
-* [Webhooks](../integrations/webhooks.md) execution
+* Executing a [custom script](../customization/custom-scripts.md)
+* Sending a [webhook](../integrations/webhooks.md)
+* Generating [user notifications](../features/notifications.md)
 
 For example, suppose you want to automatically configure a monitoring system to start monitoring a device when its operational status is changed to active, and remove it from monitoring for any other status. You can create a webhook in NetBox for the device model and craft its content and destination URL to effect the desired change on the receiving system. You can then associate an event rule with this webhook and the webhook will be sent automatically by NetBox whenever the configured constraints are met.
 
@@ -28,4 +29,4 @@ For more detail, see the reference documentation for NetBox's [conditional logic
 
 ## Event Rule Processing
 
-When a change is detected, any resulting events are placed into a Redis queue for processing. This allows the user's request to complete without needing to wait for the outgoing event(s) to be processed. The events are then extracted from the queue by the `rqworker` process. The current event queue and any failed events can be inspected in the admin UI under System > Background Tasks.
+When a change is detected, any resulting events are placed into a Redis queue for processing. This allows the user's request to complete without needing to wait for the outgoing event(s) to be processed. The events are then extracted from the queue by the `rqworker` process. The current event queue and any failed events can be inspected under System > Background Tasks.

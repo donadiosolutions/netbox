@@ -1,6 +1,9 @@
+import logging
+
 from django.utils.translation import gettext_lazy as _
 
-from utilities.choices import ButtonColorChoices, ChoiceSet
+from netbox.choices import ButtonColorChoices
+from utilities.choices import ChoiceSet
 
 
 #
@@ -114,27 +117,14 @@ class BookmarkOrderingChoices(ChoiceSet):
 
     ORDERING_NEWEST = '-created'
     ORDERING_OLDEST = 'created'
+    ORDERING_ALPHABETICAL_AZ = 'name'
+    ORDERING_ALPHABETICAL_ZA = '-name'
 
     CHOICES = (
         (ORDERING_NEWEST, _('Newest')),
         (ORDERING_OLDEST, _('Oldest')),
-    )
-
-#
-# ObjectChanges
-#
-
-
-class ObjectChangeActionChoices(ChoiceSet):
-
-    ACTION_CREATE = 'create'
-    ACTION_UPDATE = 'update'
-    ACTION_DELETE = 'delete'
-
-    CHOICES = (
-        (ACTION_CREATE, _('Created'), 'green'),
-        (ACTION_UPDATE, _('Updated'), 'blue'),
-        (ACTION_DELETE, _('Deleted'), 'red'),
+        (ORDERING_ALPHABETICAL_AZ, _('Alphabetical (A-Z)')),
+        (ORDERING_ALPHABETICAL_ZA, _('Alphabetical (Z-A)')),
     )
 
 
@@ -164,59 +154,28 @@ class JournalEntryKindChoices(ChoiceSet):
 
 class LogLevelChoices(ChoiceSet):
 
-    LOG_DEFAULT = 'default'
-    LOG_SUCCESS = 'success'
+    LOG_DEBUG = 'debug'
     LOG_INFO = 'info'
+    LOG_SUCCESS = 'success'
     LOG_WARNING = 'warning'
     LOG_FAILURE = 'failure'
 
     CHOICES = (
-        (LOG_DEFAULT, _('Default'), 'gray'),
-        (LOG_SUCCESS, _('Success'), 'green'),
+        (LOG_DEBUG, _('Debug'), 'teal'),
         (LOG_INFO, _('Info'), 'cyan'),
+        (LOG_SUCCESS, _('Success'), 'green'),
         (LOG_WARNING, _('Warning'), 'yellow'),
         (LOG_FAILURE, _('Failure'), 'red'),
+
     )
 
-
-class DurationChoices(ChoiceSet):
-
-    CHOICES = (
-        (60, _('Hourly')),
-        (720, _('12 hours')),
-        (1440, _('Daily')),
-        (10080, _('Weekly')),
-        (43200, _('30 days')),
-    )
-
-
-#
-# Job results
-#
-
-class JobResultStatusChoices(ChoiceSet):
-
-    STATUS_PENDING = 'pending'
-    STATUS_SCHEDULED = 'scheduled'
-    STATUS_RUNNING = 'running'
-    STATUS_COMPLETED = 'completed'
-    STATUS_ERRORED = 'errored'
-    STATUS_FAILED = 'failed'
-
-    CHOICES = (
-        (STATUS_PENDING, _('Pending'), 'cyan'),
-        (STATUS_SCHEDULED, _('Scheduled'), 'gray'),
-        (STATUS_RUNNING, _('Running'), 'blue'),
-        (STATUS_COMPLETED, _('Completed'), 'green'),
-        (STATUS_ERRORED, _('Errored'), 'red'),
-        (STATUS_FAILED, _('Failed'), 'red'),
-    )
-
-    TERMINAL_STATE_CHOICES = (
-        STATUS_COMPLETED,
-        STATUS_ERRORED,
-        STATUS_FAILED,
-    )
+    SYSTEM_LEVELS = {
+        LOG_DEBUG: logging.DEBUG,
+        LOG_INFO: logging.INFO,
+        LOG_SUCCESS: logging.INFO,
+        LOG_WARNING: logging.WARNING,
+        LOG_FAILURE: logging.ERROR,
+    }
 
 
 #
@@ -301,8 +260,10 @@ class EventRuleActionChoices(ChoiceSet):
 
     WEBHOOK = 'webhook'
     SCRIPT = 'script'
+    NOTIFICATION = 'notification'
 
     CHOICES = (
         (WEBHOOK, _('Webhook')),
         (SCRIPT, _('Script')),
+        (NOTIFICATION, _('Notification')),
     )
