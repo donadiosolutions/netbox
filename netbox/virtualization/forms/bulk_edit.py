@@ -3,13 +3,15 @@ from django.utils.translation import gettext_lazy as _
 
 from dcim.choices import InterfaceModeChoices
 from dcim.constants import INTERFACE_MTU_MAX, INTERFACE_MTU_MIN
-from dcim.models import Device, DeviceRole, Platform, Region, Site, SiteGroup
+from dcim.forms.mixins import ScopedBulkEditForm
+from dcim.models import Device, DeviceRole, Platform, Site
 from extras.models import ConfigTemplate
-from ipam.models import VLAN, VLANGroup, VRF
+from ipam.models import VLAN, VLANGroup, VLANTranslationPolicy, VRF
 from netbox.forms import NetBoxModelBulkEditForm
 from tenancy.models import Tenant
 from utilities.forms import BulkRenameForm, add_blank_choice
 from utilities.forms.fields import CommentField, DynamicModelChoiceField, DynamicModelMultipleChoiceField
+from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import BulkEditNullBooleanSelect
 from virtualization.choices import *
 from virtualization.models import *
@@ -35,7 +37,7 @@ class ClusterTypeBulkEditForm(NetBoxModelBulkEditForm):
 
     model = ClusterType
     fieldsets = (
-        (None, ('description',)),
+        FieldSet('description'),
     )
     nullable_fields = ('description',)
 
@@ -49,12 +51,12 @@ class ClusterGroupBulkEditForm(NetBoxModelBulkEditForm):
 
     model = ClusterGroup
     fieldsets = (
-        (None, ('description',)),
+        FieldSet('description'),
     )
     nullable_fields = ('description',)
 
 
-class ClusterBulkEditForm(NetBoxModelBulkEditForm):
+class ClusterBulkEditForm(ScopedBulkEditForm, NetBoxModelBulkEditForm):
     type = DynamicModelChoiceField(
         label=_('Type'),
         queryset=ClusterType.objects.all(),
@@ -76,25 +78,6 @@ class ClusterBulkEditForm(NetBoxModelBulkEditForm):
         queryset=Tenant.objects.all(),
         required=False
     )
-    region = DynamicModelChoiceField(
-        label=_('Region'),
-        queryset=Region.objects.all(),
-        required=False,
-    )
-    site_group = DynamicModelChoiceField(
-        label=_('Site group'),
-        queryset=SiteGroup.objects.all(),
-        required=False,
-    )
-    site = DynamicModelChoiceField(
-        label=_('Site'),
-        queryset=Site.objects.all(),
-        required=False,
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
-    )
     description = forms.CharField(
         label=_('Description'),
         max_length=200,
@@ -104,11 +87,11 @@ class ClusterBulkEditForm(NetBoxModelBulkEditForm):
 
     model = Cluster
     fieldsets = (
-        (None, ('type', 'group', 'status', 'tenant', 'description')),
-        (_('Site'), ('region', 'site_group', 'site')),
+        FieldSet('type', 'group', 'status', 'tenant', 'description'),
+        FieldSet('scope_type', 'scope', name=_('Scope')),
     )
     nullable_fields = (
-        'group', 'site', 'tenant', 'description', 'comments',
+        'group', 'scope', 'tenant', 'description', 'comments',
     )
 
 
@@ -170,7 +153,7 @@ class VirtualMachineBulkEditForm(NetBoxModelBulkEditForm):
     )
     disk = forms.IntegerField(
         required=False,
-        label=_('Disk (GB)')
+        label=_('Disk (MB)')
     )
     description = forms.CharField(
         label=_('Description'),
@@ -185,9 +168,9 @@ class VirtualMachineBulkEditForm(NetBoxModelBulkEditForm):
 
     model = VirtualMachine
     fieldsets = (
-        (None, ('site', 'cluster', 'device', 'status', 'role', 'tenant', 'platform', 'description')),
-        (_('Resources'), ('vcpus', 'memory', 'disk')),
-        ('Configuration', ('config_template',)),
+        FieldSet('site', 'cluster', 'device', 'status', 'role', 'tenant', 'platform', 'description'),
+        FieldSet('vcpus', 'memory', 'disk', name=_('Resources')),
+        FieldSet('config_template', name=_('Configuration')),
     )
     nullable_fields = (
         'site', 'cluster', 'device', 'role', 'tenant', 'platform', 'vcpus', 'memory', 'disk', 'description', 'comments',
@@ -259,15 +242,23 @@ class VMInterfaceBulkEditForm(NetBoxModelBulkEditForm):
         required=False,
         label=_('VRF')
     )
+    vlan_translation_policy = DynamicModelChoiceField(
+        queryset=VLANTranslationPolicy.objects.all(),
+        required=False,
+        label=_('VLAN Translation Policy')
+    )
 
     model = VMInterface
     fieldsets = (
-        (None, ('mtu', 'enabled', 'vrf', 'description')),
-        (_('Related Interfaces'), ('parent', 'bridge')),
-        (_('802.1Q Switching'), ('mode', 'vlan_group', 'untagged_vlan', 'tagged_vlans')),
+        FieldSet('mtu', 'enabled', 'vrf', 'description'),
+        FieldSet('parent', 'bridge', name=_('Related Interfaces')),
+        FieldSet(
+            'mode', 'vlan_group', 'untagged_vlan', 'tagged_vlans', 'vlan_translation_policy',
+            name=_('802.1Q Switching')
+        ),
     )
     nullable_fields = (
-        'parent', 'bridge', 'mtu', 'vrf', 'description',
+        'parent', 'bridge', 'mtu', 'vrf', 'description', 'vlan_translation_policy',
     )
 
     def __init__(self, *args, **kwargs):
@@ -296,7 +287,7 @@ class VMInterfaceBulkEditForm(NetBoxModelBulkEditForm):
                 # Check interface sites.  First interface should set site, further interfaces will either continue the
                 # loop or reset back to no site and break the loop.
                 for interface in interfaces:
-                    vm_site = interface.virtual_machine.site or interface.virtual_machine.cluster.site
+                    vm_site = interface.virtual_machine.site or interface.virtual_machine.cluster._site
                     if site is None:
                         site = vm_site
                     elif vm_site is not site:
@@ -330,7 +321,7 @@ class VirtualDiskBulkEditForm(NetBoxModelBulkEditForm):
     )
     size = forms.IntegerField(
         required=False,
-        label=_('Size (GB)')
+        label=_('Size (MB)')
     )
     description = forms.CharField(
         label=_('Description'),
@@ -340,7 +331,7 @@ class VirtualDiskBulkEditForm(NetBoxModelBulkEditForm):
 
     model = VirtualDisk
     fieldsets = (
-        (None, ('size', 'description')),
+        FieldSet('size', 'description'),
     )
     nullable_fields = ('description',)
 

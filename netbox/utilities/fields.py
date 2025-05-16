@@ -1,35 +1,24 @@
 from collections import defaultdict
 
 from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
+from django.db.models.fields.mixins import FieldCacheMixin
+from django.utils.functional import cached_property
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
-from utilities.ordering import naturalize
 from .forms.widgets import ColorSelect
 from .validators import ColorValidator
 
 __all__ = (
     'ColorField',
     'CounterCacheField',
+    'GenericArrayForeignKey',
     'NaturalOrderingField',
-    'NullableCharField',
     'RestrictedGenericForeignKey',
 )
-
-
-# Deprecated: Retained only to ensure successful migration from early releases
-# Use models.CharField(null=True) instead
-# TODO: Remove in v4.0
-class NullableCharField(models.CharField):
-    description = "Stores empty values as NULL rather than ''"
-
-    def to_python(self, value):
-        if isinstance(value, models.CharField):
-            return value
-        return value or ''
-
-    def get_prep_value(self, value):
-        return value or None
 
 
 class ColorField(models.CharField):
@@ -42,6 +31,7 @@ class ColorField(models.CharField):
 
     def formfield(self, **kwargs):
         kwargs['widget'] = ColorSelect
+        kwargs['help_text'] = mark_safe(_('RGB color in hexadecimal. Example: ') + '<code>00ff00</code>')
         return super().formfield(**kwargs)
 
 
@@ -54,7 +44,7 @@ class NaturalOrderingField(models.CharField):
     """
     description = "Stores a representation of its target field suitable for natural ordering"
 
-    def __init__(self, target_field, naturalize_function=naturalize, *args, **kwargs):
+    def __init__(self, target_field, naturalize_function, *args, **kwargs):
         self.target_field = target_field
         self.naturalize_function = naturalize_function
         super().__init__(*args, **kwargs)
@@ -86,14 +76,24 @@ class RestrictedGenericForeignKey(GenericForeignKey):
     #  1. Capture restrict_params from RestrictedPrefetch (hack)
     #  2. If restrict_params is set, call restrict() on the queryset for
     #     the related model
-    def get_prefetch_queryset(self, instances, queryset=None):
+    def get_prefetch_querysets(self, instances, querysets=None):
         restrict_params = {}
+        custom_queryset_dict = {}
 
         # Compensate for the hack in RestrictedPrefetch
-        if type(queryset) is dict:
-            restrict_params = queryset
-        elif queryset is not None:
-            raise ValueError(_("Custom queryset can't be used for this lookup."))
+        if type(querysets) is dict:
+            restrict_params = querysets
+
+        elif querysets is not None:
+            for queryset in querysets:
+                ct_id = self.get_content_type(
+                    model=queryset.query.model, using=queryset.db
+                ).pk
+                if ct_id in custom_queryset_dict:
+                    raise ValueError(
+                        "Only one queryset is allowed for each content type."
+                    )
+                custom_queryset_dict[ct_id] = queryset
 
         # For efficiency, group the instances by content type and then do one
         # query per model
@@ -116,15 +116,16 @@ class RestrictedGenericForeignKey(GenericForeignKey):
 
         ret_val = []
         for ct_id, fkeys in fk_dict.items():
-            instance = instance_dict[ct_id]
-            ct = self.get_content_type(id=ct_id, using=instance._state.db)
-            if restrict_params:
-                # Override the default behavior to call restrict() on each model's queryset
-                qs = ct.model_class().objects.filter(pk__in=fkeys).restrict(**restrict_params)
-                ret_val.extend(qs)
+            if ct_id in custom_queryset_dict:
+                # Return values from the custom queryset, if provided.
+                ret_val.extend(custom_queryset_dict[ct_id].filter(pk__in=fkeys))
             else:
-                # Default behavior
-                ret_val.extend(ct.get_all_objects_for_this_type(pk__in=fkeys))
+                instance = instance_dict[ct_id]
+                ct = self.get_content_type(id=ct_id, using=instance._state.db)
+                qs = ct.model_class().objects.filter(pk__in=fkeys)
+                if restrict_params:
+                    qs = qs.restrict(**restrict_params)
+                ret_val.extend(qs)
 
         # For doing the join in Python, we have to match both the FK val and the
         # content type, so we use a callable that returns a (fk, class) pair.
@@ -190,3 +191,130 @@ class CounterCacheField(models.BigIntegerField):
         kwargs["to_model"] = self.to_model_name
         kwargs["to_field"] = self.to_field_name
         return name, path, args, kwargs
+
+
+class GenericArrayForeignKey(FieldCacheMixin, models.Field):
+    """
+    Provide a generic many-to-many relation through an 2d array field
+    """
+
+    many_to_many = False
+    many_to_one = False
+    one_to_many = True
+    one_to_one = False
+
+    def __init__(self, field, for_concrete_model=True):
+        super().__init__(editable=False)
+        self.field = field
+        self.for_concrete_model = for_concrete_model
+        self.is_relation = True
+
+    def contribute_to_class(self, cls, name, **kwargs):
+        super().contribute_to_class(cls, name, private_only=True, **kwargs)
+        # GenericArrayForeignKey is its own descriptor.
+        setattr(cls, self.attname, self)
+
+    @cached_property
+    def cache_name(self):
+        return self.name
+
+    def get_cache_name(self):
+        return self.cache_name
+
+    def _get_ids(self, instance):
+        return getattr(instance, self.field)
+
+    def get_content_type_by_id(self, id=None, using=None):
+        return ContentType.objects.db_manager(using).get_for_id(id)
+
+    def get_content_type_of_obj(self, obj=None):
+        return ContentType.objects.db_manager(obj._state.db).get_for_model(
+            obj, for_concrete_model=self.for_concrete_model
+        )
+
+    def get_content_type_for_model(self, using=None, model=None):
+        return ContentType.objects.db_manager(using).get_for_model(
+            model, for_concrete_model=self.for_concrete_model
+        )
+
+    def get_prefetch_querysets(self, instances, querysets=None):
+        custom_queryset_dict = {}
+        if querysets is not None:
+            for queryset in querysets:
+                ct_id = self.get_content_type_for_model(
+                    model=queryset.query.model, using=queryset.db
+                ).pk
+                if ct_id in custom_queryset_dict:
+                    raise ValueError(
+                        "Only one queryset is allowed for each content type."
+                    )
+                custom_queryset_dict[ct_id] = queryset
+
+        # For efficiency, group the instances by content type and then do one
+        # query per model
+        fk_dict = defaultdict(set)  # type id, db -> model ids
+        for instance in instances:
+            for step in self._get_ids(instance):
+                for ct_id, fk_val in step:
+                    fk_dict[(ct_id, instance._state.db)].add(fk_val)
+
+        rel_objects = []
+        for (ct_id, db), fkeys in fk_dict.items():
+            if ct_id in custom_queryset_dict:
+                rel_objects.extend(custom_queryset_dict[ct_id].filter(pk__in=fkeys))
+            else:
+                ct = self.get_content_type_by_id(id=ct_id, using=db)
+                rel_objects.extend(ct.get_all_objects_for_this_type(pk__in=fkeys))
+
+        # reorganize objects to fix usage
+        items = {
+            (self.get_content_type_of_obj(obj=rel_obj).pk, rel_obj.pk, rel_obj._state.db): rel_obj
+            for rel_obj in rel_objects
+        }
+        lists = []
+        lists_keys = {}
+        for instance in instances:
+            data = []
+            lists.append(data)
+            lists_keys[instance] = id(data)
+            for step in self._get_ids(instance):
+                nodes = []
+                for ct, fk in step:
+                    if rel_obj := items.get((ct, fk, instance._state.db)):
+                        nodes.append(rel_obj)
+                data.append(nodes)
+
+        return (
+            lists,
+            lambda obj: id(obj),
+            lambda obj: lists_keys[obj],
+            True,
+            self.cache_name,
+            False,
+        )
+
+    def __get__(self, instance, cls=None):
+        if instance is None:
+            return self
+        rel_objects = self.get_cached_value(instance, default=...)
+        expected_ids = self._get_ids(instance)
+        # we do not check if cache actual
+        if rel_objects is not ...:
+            return rel_objects
+        # load value
+        if expected_ids is None:
+            self.set_cached_value(instance, rel_objects)
+            return rel_objects
+        data = []
+        for step in self._get_ids(instance):
+            rel_objects = []
+            for ct_id, pk_val in step:
+                ct = self.get_content_type_by_id(id=ct_id, using=instance._state.db)
+                try:
+                    rel_obj = ct.get_object_for_this_type(pk=pk_val)
+                    rel_objects.append(rel_obj)
+                except ObjectDoesNotExist:
+                    pass
+            data.append(rel_objects)
+        self.set_cached_value(instance, data)
+        return data

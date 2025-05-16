@@ -13,14 +13,15 @@ from django.utils.html import escape
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 
-from extras.signals import clear_events
+from core.signals import clear_events
 from utilities.error_handlers import handle_protectederror
 from utilities.exceptions import AbortRequest, PermissionsViolation
 from utilities.forms import ConfirmationForm, restrict_form_fields
-from utilities.htmx import is_htmx
+from utilities.htmx import htmx_partial
 from utilities.permissions import get_permission_for_model
-from utilities.utils import get_viewname, normalize_querydict, prepare_cloned_fields
-from utilities.views import GetReturnURLMixin
+from utilities.querydict import normalize_querydict, prepare_cloned_fields
+from utilities.request import safe_for_redirect
+from utilities.views import GetReturnURLMixin, get_viewname
 from .base import BaseObjectView
 from .mixins import ActionsMixin, TableMixin
 from .utils import get_prerequisite_model
@@ -87,12 +88,15 @@ class ObjectChildrenView(ObjectView, ActionsMixin, TableMixin):
         child_model: The model class which represents the child objects
         table: The django-tables2 Table class used to render the child objects list
         filterset: A django-filter FilterSet that is applied to the queryset
+        filterset_form: The form class used to render filter options
         actions: A mapping of supported actions to their required permissions. When adding custom actions, bulk
             action names must be prefixed with `bulk_`. (See ActionsMixin.)
     """
     child_model = None
     table = None
     filterset = None
+    filterset_form = None
+    template_name = 'generic/object_children.html'
 
     def get_children(self, request, parent):
         """
@@ -139,18 +143,21 @@ class ObjectChildrenView(ObjectView, ActionsMixin, TableMixin):
         table = self.get_table(table_data, request, has_bulk_actions)
 
         # If this is an HTMX request, return only the rendered table HTML
-        if is_htmx(request):
+        if htmx_partial(request):
             return render(request, 'htmx/table.html', {
                 'object': instance,
                 'table': table,
+                'model': self.child_model,
             })
 
         return render(request, self.get_template_name(), {
             'object': instance,
+            'model': self.child_model,
             'child_model': self.child_model,
             'base_template': f'{instance._meta.app_label}/{instance._meta.model_name}.html',
             'table': table,
             'table_config': f'{table.name}_config',
+            'filter_form': self.filterset_form(request.GET) if self.filterset_form else None,
             'actions': actions,
             'tab': self.tab,
             'return_url': request.get_full_path(),
@@ -227,16 +234,23 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
         form = self.form(instance=obj, initial=initial_data)
         restrict_form_fields(form, request.user)
 
-        # If this is an HTMX request, return only the rendered form HTML
-        if is_htmx(request):
-            return render(request, self.htmx_template_name, {
-                'form': form,
-            })
-
-        return render(request, self.template_name, {
+        context = {
             'model': model,
             'object': obj,
             'form': form,
+        }
+
+        # If the form is being displayed within a "quick add" widget,
+        # use the appropriate template
+        if request.GET.get('_quickadd'):
+            return render(request, 'htmx/quick_add.html', context)
+
+        # If this is an HTMX request, return only the rendered form HTML
+        if htmx_partial(request):
+            return render(request, self.htmx_template_name, context)
+
+        return render(request, self.template_name, {
+            **context,
             'return_url': self.get_return_url(request, obj),
             'prerequisite_model': get_prerequisite_model(self.queryset),
             **self.get_extra_context(request, obj),
@@ -251,6 +265,7 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
         """
         logger = logging.getLogger('netbox.views.ObjectEditView')
         obj = self.get_object(**kwargs)
+        model = self.queryset.model
 
         # Take a snapshot for change logging (if editing an existing object)
         if obj.pk and hasattr(obj, 'snapshot'):
@@ -284,6 +299,13 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
                     msg = f'{msg} {obj}'
                 messages.success(request, msg)
 
+                # Object was created via "quick add" modal
+                if '_quickadd' in request.POST:
+                    return render(request, 'htmx/quick_add_created.html', {
+                        'object': obj,
+                    })
+
+                # If adding another object, redirect back to the edit form
                 if '_addanother' in request.POST:
                     redirect_url = request.path
 
@@ -294,10 +316,18 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
                         if 'return_url' in request.GET:
                             params['return_url'] = request.GET.get('return_url')
                         redirect_url += f"?{params.urlencode()}"
+                        if not safe_for_redirect(redirect_url):
+                            redirect_url = reverse('home')
 
                     return redirect(redirect_url)
 
                 return_url = self.get_return_url(request, obj)
+
+                # If the object has been created or edited via HTMX, return an HTMX redirect to the object view
+                if request.htmx:
+                    return HttpResponse(headers={
+                        'HX-Location': return_url,
+                    })
 
                 return redirect(return_url)
 
@@ -309,12 +339,19 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
         else:
             logger.debug("Form validation failed")
 
-        return render(request, self.template_name, {
+        context = {
+            'model': model,
             'object': obj,
             'form': form,
             'return_url': self.get_return_url(request, obj),
             **self.get_extra_context(request, obj),
-        })
+        }
+
+        # Form was submitted via a "quick add" widget
+        if '_quickadd' in request.POST:
+            return render(request, 'htmx/quick_add.html', context)
+
+        return render(request, self.template_name, context)
 
 
 class ObjectDeleteView(GetReturnURLMixin, BaseObjectView):
@@ -357,7 +394,7 @@ class ObjectDeleteView(GetReturnURLMixin, BaseObjectView):
         """
         handle_protectederror(protected_objects, request, exc)
 
-        if is_htmx(request):
+        if request.htmx:
             return HttpResponse(headers={
                 'HX-Redirect': obj.get_absolute_url(),
             })
@@ -386,7 +423,7 @@ class ObjectDeleteView(GetReturnURLMixin, BaseObjectView):
             return self._handle_protected_objects(obj, e.restricted_objects, request, e)
 
         # If this is an HTMX request, return only the rendered deletion form as modal content
-        if is_htmx(request):
+        if htmx_partial(request):
             viewname = get_viewname(self.queryset.model, action='delete')
             form_url = reverse(viewname, kwargs={'pk': obj.pk})
             return render(request, 'htmx/delete_form.html', {
@@ -488,7 +525,7 @@ class ComponentCreateView(GetReturnURLMixin, BaseObjectView):
         instance = self.alter_object(self.queryset.model(), request)
 
         # If this is an HTMX request, return only the rendered form HTML
-        if is_htmx(request):
+        if htmx_partial(request):
             return render(request, 'htmx/form.html', {
                 'form': form,
             })
@@ -547,7 +584,7 @@ class ComponentCreateView(GetReturnURLMixin, BaseObjectView):
                         ))
 
                         # Redirect user on success
-                        if '_addanother' in request.POST:
+                        if '_addanother' in request.POST and safe_for_redirect(request.get_full_path()):
                             return redirect(request.get_full_path())
                         else:
                             return redirect(self.get_return_url(request))

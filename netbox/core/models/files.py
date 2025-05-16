@@ -89,10 +89,18 @@ class ManagedFile(SyncedDataMixin, models.Model):
     def clean(self):
         super().clean()
 
+        if self.data_file and not self.file_path:
+            self.file_path = os.path.basename(self.data_path)
+
         # Ensure that the file root and path make a unique pair
-        if self._meta.model.objects.filter(file_root=self.file_root, file_path=self.file_path).exclude(pk=self.pk).exists():
+        if self._meta.model.objects.filter(
+                file_root=self.file_root, file_path=self.file_path
+        ).exclude(pk=self.pk).exists():
             raise ValidationError(
-                f"A {self._meta.verbose_name.lower()} with this file path already exists ({self.file_root}/{self.file_path}).")
+                _("A {model} with this file path already exists ({path}).").format(
+                    model=self._meta.verbose_name.lower(),
+                    path=f"{self.file_root}/{self.file_path}"
+                ))
 
     def delete(self, *args, **kwargs):
         # Delete file from disk

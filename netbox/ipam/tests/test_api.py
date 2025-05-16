@@ -8,6 +8,7 @@ from dcim.models import Device, DeviceRole, DeviceType, Interface, Manufacturer,
 from ipam.choices import *
 from ipam.models import *
 from tenancy.models import Tenant
+from utilities.data import string_to_ranges
 from utilities.testing import APITestCase, APIViewTestCases, create_test_device, disable_warnings
 
 
@@ -23,7 +24,7 @@ class AppTest(APITestCase):
 
 class ASNRangeTest(APIViewTestCases.APIViewTestCase):
     model = ASNRange
-    brief_fields = ['display', 'id', 'name', 'url']
+    brief_fields = ['description', 'display', 'id', 'name', 'url']
     bulk_update_data = {
         'description': 'New description',
     }
@@ -135,7 +136,7 @@ class ASNRangeTest(APIViewTestCases.APIViewTestCase):
 
 class ASNTest(APIViewTestCases.APIViewTestCase):
     model = ASN
-    brief_fields = ['asn', 'display', 'id', 'url']
+    brief_fields = ['asn', 'description', 'display', 'id', 'url']
     bulk_update_data = {
         'description': 'New description',
     }
@@ -191,7 +192,7 @@ class ASNTest(APIViewTestCases.APIViewTestCase):
 
 class VRFTest(APIViewTestCases.APIViewTestCase):
     model = VRF
-    brief_fields = ['display', 'id', 'name', 'prefix_count', 'rd', 'url']
+    brief_fields = ['description', 'display', 'id', 'name', 'prefix_count', 'rd', 'url']
     create_data = [
         {
             'name': 'VRF 4',
@@ -223,7 +224,7 @@ class VRFTest(APIViewTestCases.APIViewTestCase):
 
 class RouteTargetTest(APIViewTestCases.APIViewTestCase):
     model = RouteTarget
-    brief_fields = ['display', 'id', 'name', 'url']
+    brief_fields = ['description', 'display', 'id', 'name', 'url']
     create_data = [
         {
             'name': '65000:1004',
@@ -252,7 +253,7 @@ class RouteTargetTest(APIViewTestCases.APIViewTestCase):
 
 class RIRTest(APIViewTestCases.APIViewTestCase):
     model = RIR
-    brief_fields = ['aggregate_count', 'display', 'id', 'name', 'slug', 'url']
+    brief_fields = ['aggregate_count', 'description', 'display', 'id', 'name', 'slug', 'url']
     create_data = [
         {
             'name': 'RIR 4',
@@ -284,7 +285,7 @@ class RIRTest(APIViewTestCases.APIViewTestCase):
 
 class AggregateTest(APIViewTestCases.APIViewTestCase):
     model = Aggregate
-    brief_fields = ['display', 'family', 'id', 'prefix', 'url']
+    brief_fields = ['description', 'display', 'family', 'id', 'prefix', 'url']
     bulk_update_data = {
         'description': 'New description',
     }
@@ -323,7 +324,7 @@ class AggregateTest(APIViewTestCases.APIViewTestCase):
 
 class RoleTest(APIViewTestCases.APIViewTestCase):
     model = Role
-    brief_fields = ['display', 'id', 'name', 'prefix_count', 'slug', 'url', 'vlan_count']
+    brief_fields = ['description', 'display', 'id', 'name', 'prefix_count', 'slug', 'url', 'vlan_count']
     create_data = [
         {
             'name': 'Role 4',
@@ -355,7 +356,7 @@ class RoleTest(APIViewTestCases.APIViewTestCase):
 
 class PrefixTest(APIViewTestCases.APIViewTestCase):
     model = Prefix
-    brief_fields = ['_depth', 'display', 'family', 'id', 'prefix', 'url']
+    brief_fields = ['_depth', 'description', 'display', 'family', 'id', 'prefix', 'url']
     create_data = [
         {
             'prefix': '192.168.4.0/24',
@@ -534,7 +535,7 @@ class PrefixTest(APIViewTestCases.APIViewTestCase):
 
 class IPRangeTest(APIViewTestCases.APIViewTestCase):
     model = IPRange
-    brief_fields = ['display', 'end_address', 'family', 'id', 'start_address', 'url']
+    brief_fields = ['description', 'display', 'end_address', 'family', 'id', 'start_address', 'url']
     create_data = [
         {
             'start_address': '192.168.4.10/24',
@@ -633,7 +634,7 @@ class IPRangeTest(APIViewTestCases.APIViewTestCase):
 
 class IPAddressTest(APIViewTestCases.APIViewTestCase):
     model = IPAddress
-    brief_fields = ['address', 'display', 'family', 'id', 'url']
+    brief_fields = ['address', 'description', 'display', 'family', 'id', 'url']
     create_data = [
         {
             'address': '192.168.0.4/24',
@@ -647,6 +648,9 @@ class IPAddressTest(APIViewTestCases.APIViewTestCase):
     ]
     bulk_update_data = {
         'description': 'New description',
+    }
+    graphql_filter = {
+        'address': {'lookup': 'i_exact', 'value': '192.168.0.1/24'},
     }
 
     @classmethod
@@ -696,8 +700,6 @@ class IPAddressTest(APIViewTestCases.APIViewTestCase):
         device1.primary_ip4 = ip_addresses[0]
         device1.save()
 
-        ip2 = ip_addresses[1]
-
         url = reverse('ipam-api:ipaddress-detail', kwargs={'pk': ip1.pk})
         self.add_permissions('ipam.change_ipaddress')
 
@@ -718,7 +720,7 @@ class IPAddressTest(APIViewTestCases.APIViewTestCase):
 
 class FHRPGroupTest(APIViewTestCases.APIViewTestCase):
     model = FHRPGroup
-    brief_fields = ['display', 'group_id', 'id', 'protocol', 'url']
+    brief_fields = ['description', 'display', 'group_id', 'id', 'protocol', 'url']
     bulk_update_data = {
         'protocol': FHRPGroupProtocolChoices.PROTOCOL_GLBP,
         'group_id': 200,
@@ -730,10 +732,19 @@ class FHRPGroupTest(APIViewTestCases.APIViewTestCase):
 
     @classmethod
     def setUpTestData(cls):
-
         fhrp_groups = (
-            FHRPGroup(protocol=FHRPGroupProtocolChoices.PROTOCOL_VRRP2, group_id=10, auth_type=FHRPGroupAuthTypeChoices.AUTHENTICATION_PLAINTEXT, auth_key='foobar123'),
-            FHRPGroup(protocol=FHRPGroupProtocolChoices.PROTOCOL_VRRP3, group_id=20, auth_type=FHRPGroupAuthTypeChoices.AUTHENTICATION_MD5, auth_key='foobar123'),
+            FHRPGroup(
+                protocol=FHRPGroupProtocolChoices.PROTOCOL_VRRP2,
+                group_id=10,
+                auth_type=FHRPGroupAuthTypeChoices.AUTHENTICATION_PLAINTEXT,
+                auth_key='foobar123',
+            ),
+            FHRPGroup(
+                protocol=FHRPGroupProtocolChoices.PROTOCOL_VRRP3,
+                group_id=20,
+                auth_type=FHRPGroupAuthTypeChoices.AUTHENTICATION_MD5,
+                auth_key='foobar123',
+            ),
             FHRPGroup(protocol=FHRPGroupProtocolChoices.PROTOCOL_HSRP, group_id=30),
         )
         FHRPGroup.objects.bulk_create(fhrp_groups)
@@ -764,6 +775,7 @@ class FHRPGroupAssignmentTest(APIViewTestCases.APIViewTestCase):
     bulk_update_data = {
         'priority': 100,
     }
+    user_permissions = ('ipam.view_fhrpgroup', )
 
     @classmethod
     def setUpTestData(cls):
@@ -839,7 +851,7 @@ class FHRPGroupAssignmentTest(APIViewTestCases.APIViewTestCase):
 
 class VLANGroupTest(APIViewTestCases.APIViewTestCase):
     model = VLANGroup
-    brief_fields = ['display', 'id', 'name', 'slug', 'url', 'vlan_count']
+    brief_fields = ['description', 'display', 'id', 'name', 'slug', 'url', 'vlan_count']
     create_data = [
         {
             'name': 'VLAN Group 4',
@@ -879,8 +891,7 @@ class VLANGroupTest(APIViewTestCases.APIViewTestCase):
         vlangroup = VLANGroup.objects.create(
             name='VLAN Group X',
             slug='vlan-group-x',
-            min_vid=MIN_VID,
-            max_vid=MAX_VID
+            vid_ranges=string_to_ranges(f"{MIN_VID}-{MAX_VID}")
         )
 
         # Create a set of VLANs within the group
@@ -960,7 +971,7 @@ class VLANGroupTest(APIViewTestCases.APIViewTestCase):
 
 class VLANTest(APIViewTestCases.APIViewTestCase):
     model = VLAN
-    brief_fields = ['display', 'id', 'name', 'url', 'vid']
+    brief_fields = ['description', 'display', 'id', 'name', 'url', 'vid']
     bulk_update_data = {
         'description': 'New description',
     }
@@ -978,6 +989,7 @@ class VLANTest(APIViewTestCases.APIViewTestCase):
             VLAN(name='VLAN 1', vid=1, group=vlan_groups[0]),
             VLAN(name='VLAN 2', vid=2, group=vlan_groups[0]),
             VLAN(name='VLAN 3', vid=3, group=vlan_groups[0]),
+            VLAN(name='SVLAN 1', vid=1001, qinq_role=VLANQinQRoleChoices.ROLE_SERVICE),
         )
         VLAN.objects.bulk_create(vlans)
 
@@ -996,6 +1008,12 @@ class VLANTest(APIViewTestCases.APIViewTestCase):
                 'vid': 6,
                 'name': 'VLAN 6',
                 'group': vlan_groups[1].pk,
+            },
+            {
+                'vid': 2001,
+                'name': 'CVLAN 1',
+                'qinq_role': VLANQinQRoleChoices.ROLE_CUSTOMER,
+                'qinq_svlan': vlans[3].pk,
             },
         ]
 
@@ -1018,9 +1036,115 @@ class VLANTest(APIViewTestCases.APIViewTestCase):
         self.assertTrue(content['detail'].startswith('Unable to delete object.'))
 
 
+class VLANTranslationPolicyTest(APIViewTestCases.APIViewTestCase):
+    model = VLANTranslationPolicy
+    brief_fields = ['description', 'display', 'id', 'name', 'url',]
+    bulk_update_data = {
+        'description': 'New description',
+    }
+
+    @classmethod
+    def setUpTestData(cls):
+
+        vlan_translation_policies = (
+            VLANTranslationPolicy(
+                name='Policy 1',
+                description='foobar1',
+            ),
+            VLANTranslationPolicy(
+                name='Policy 2',
+                description='foobar2',
+            ),
+            VLANTranslationPolicy(
+                name='Policy 3',
+                description='foobar3',
+            ),
+        )
+        VLANTranslationPolicy.objects.bulk_create(vlan_translation_policies)
+
+        cls.create_data = [
+            {
+                'name': 'Policy 4',
+                'description': 'foobar4',
+            },
+            {
+                'name': 'Policy 5',
+                'description': 'foobar5',
+            },
+            {
+                'name': 'Policy 6',
+                'description': 'foobar6',
+            },
+        ]
+
+
+class VLANTranslationRuleTest(APIViewTestCases.APIViewTestCase):
+    model = VLANTranslationRule
+    brief_fields = ['description', 'display', 'id', 'local_vid', 'policy', 'remote_vid', 'url']
+
+    @classmethod
+    def setUpTestData(cls):
+
+        vlan_translation_policies = (
+            VLANTranslationPolicy(
+                name='Policy 1',
+                description='foobar1',
+            ),
+            VLANTranslationPolicy(
+                name='Policy 2',
+                description='foobar2',
+            ),
+        )
+        VLANTranslationPolicy.objects.bulk_create(vlan_translation_policies)
+
+        vlan_translation_rules = (
+            VLANTranslationRule(
+                policy=vlan_translation_policies[0],
+                local_vid=100,
+                remote_vid=200,
+                description='foo',
+            ),
+            VLANTranslationRule(
+                policy=vlan_translation_policies[0],
+                local_vid=101,
+                remote_vid=201,
+                description='bar',
+            ),
+            VLANTranslationRule(
+                policy=vlan_translation_policies[1],
+                local_vid=102,
+                remote_vid=202,
+                description='baz',
+            ),
+        )
+        VLANTranslationRule.objects.bulk_create(vlan_translation_rules)
+
+        cls.create_data = [
+            {
+                'policy': vlan_translation_policies[0].pk,
+                'local_vid': 300,
+                'remote_vid': 400,
+            },
+            {
+                'policy': vlan_translation_policies[0].pk,
+                'local_vid': 301,
+                'remote_vid': 401,
+            },
+            {
+                'policy': vlan_translation_policies[1].pk,
+                'local_vid': 302,
+                'remote_vid': 402,
+            },
+        ]
+
+        cls.bulk_update_data = {
+            'policy': vlan_translation_policies[1].pk,
+        }
+
+
 class ServiceTemplateTest(APIViewTestCases.APIViewTestCase):
     model = ServiceTemplate
-    brief_fields = ['display', 'id', 'name', 'ports', 'protocol', 'url']
+    brief_fields = ['description', 'display', 'id', 'name', 'ports', 'protocol', 'url']
     bulk_update_data = {
         'description': 'New description',
     }
@@ -1055,7 +1179,7 @@ class ServiceTemplateTest(APIViewTestCases.APIViewTestCase):
 
 class ServiceTest(APIViewTestCases.APIViewTestCase):
     model = Service
-    brief_fields = ['display', 'id', 'name', 'ports', 'protocol', 'url']
+    brief_fields = ['description', 'display', 'id', 'name', 'ports', 'protocol', 'url']
     bulk_update_data = {
         'description': 'New description',
     }

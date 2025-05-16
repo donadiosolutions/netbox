@@ -7,7 +7,7 @@ Getting started with NetBox development is pretty straightforward, and should fe
 * A Linux system or compatible environment
 * A PostgreSQL server, which can be installed locally [per the documentation](../installation/1-postgresql.md)
 * A Redis server, which can also be [installed locally](../installation/2-redis.md)
-* Python 3.8 or later
+* Python 3.10 or later
 
 ### 1. Fork the Repo
 
@@ -37,16 +37,12 @@ CHANGELOG.md           CONTRIBUTING.md  LICENSE.txt  netbox      README.md  scri
 
 ### 2. Create a New Branch
 
-The NetBox project utilizes three persistent git branches to track work:
+The NetBox project utilizes two persistent git branches to track work:
 
-* `master` - Serves as a snapshot of the current stable release
-* `develop` - All development on the upcoming stable (patch) release occurs here
-* `feature` - Tracks work on an upcoming minor release
+* `main` - All development on the upcoming stable (patch) release occurs here. Releases are published from this branch.
+* `feature` - All work planned for the upcoming minor release is done here.
 
-Typically, you'll base pull requests off of the `develop` branch, or off of `feature` if you're working on a new major release. For example, assume that the current NetBox release is v3.3.5. Work applied to the `develop` branch will appear in v3.3.6, and work done under the `feature` branch will be included in the next minor release (v3.4.0).
-
-!!! warning
-    **Never** merge pull requests into the `master` branch: This branch only ever merges pull requests from the `develop` branch, to effect a new release.
+Typically, you'll base pull requests off of the `main` branch, or off of `feature` if you're working on the upcoming minor or major release. For example, assume that the current NetBox release is v4.2.3. Work applied to the `main` branch will appear in v4.2.4, and work done under the `feature` branch will be included in the next minor release (v4.3.0).
 
 To create a new branch, first ensure that you've checked out the desired base branch, then run:
 
@@ -62,22 +58,7 @@ $issue-$description
 
 The description should be just two or three words to imply the focus of the work being performed. For example, bug #1234 to fix a TypeError exception when creating a device might be named `1234-device-typerror`. This ensures that branches are always follow some logical ordering (e.g. when running `git branch -a`) and helps other developers quickly identify the purpose of each.
 
-### 3. Enable Pre-Commit Hooks
-
-NetBox ships with a [git pre-commit hook](https://githooks.com/) script that automatically checks for style compliance and missing database migrations prior to committing changes. This helps avoid erroneous commits that result in CI test failures. You are encouraged to enable it by creating a link to `scripts/git-hooks/pre-commit`:
-
-```no-highlight
-cd .git/hooks/
-ln -s ../../scripts/git-hooks/pre-commit
-```
-For the pre-commit hooks to work, you will also need to install the pycodestyle package:
-
-```no-highlight
-python -m pip install pycodestyle
-```
-...and set up the yarn packages as shown in the [Web UI Development Guide](web-ui.md)
-
-### 4. Create a Python Virtual Environment
+### 3. Create a Python Virtual Environment
 
 A [virtual environment](https://docs.python.org/3/tutorial/venv.html) (or "venv" for short) is like a container for a set of Python packages. These allow you to build environments suited to specific projects without interfering with system packages or other projects. When installed per the documentation, NetBox uses a virtual environment in production.
 
@@ -101,13 +82,33 @@ source ~/.venv/netbox/bin/activate
 
 Notice that the console prompt changes to indicate the active environment. This updates the necessary system environment variables to ensure that any Python scripts are run within the virtual environment.
 
-### 5. Install Required Packages
+### 4. Install Required Packages
 
 With the virtual environment activated, install the project's required Python packages using the `pip` module. Required packages are defined in `requirements.txt`. Each line in this file specifies the name and specific version of a required package.
 
 ```no-highlight
 python -m pip install -r requirements.txt
 ```
+
+### 5. Install Pre-Commit
+
+NetBox uses [`pre-commit`](https://pre-commit.com/) to automatically validate code when commiting new changes. This includes the following operations:
+
+* Run the `ruff` Python linter
+* Run Django's internal system check
+* Check for missing database migrations
+* Validate any changes to the documentation with `mkdocs`
+* Validate Typescript & Sass styling with `yarn`
+* Ensure that any modified static front end assets have been recompiled
+
+Enable `pre-commit` with the following commands _prior_ to commiting any changes:
+
+```no-highlight
+python -m pip install ruff pre-commit
+pre-commit install
+```
+
+You may also need to set up the yarn packages as shown in the [Web UI Development Guide](web-ui.md).
 
 ### 6. Configure NetBox
 

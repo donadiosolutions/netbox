@@ -5,10 +5,11 @@ from django.utils.translation import gettext as _
 from dcim.models import Device, Region, Site
 from ipam.models import RouteTarget, VLAN
 from netbox.forms import NetBoxModelFilterSetForm
-from tenancy.forms import TenancyFilterForm
+from tenancy.forms import ContactModelFilterForm, TenancyFilterForm
 from utilities.forms.fields import (
     ContentTypeMultipleChoiceField, DynamicModelChoiceField, DynamicModelMultipleChoiceField, TagFilterField,
 )
+from utilities.forms.rendering import FieldSet
 from utilities.forms.utils import add_blank_choice
 from virtualization.models import VirtualMachine
 from vpn.choices import *
@@ -29,18 +30,23 @@ __all__ = (
 )
 
 
-class TunnelGroupFilterForm(NetBoxModelFilterSetForm):
+class TunnelGroupFilterForm(ContactModelFilterForm, NetBoxModelFilterSetForm):
     model = TunnelGroup
+    fieldsets = (
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('contact', 'contact_role', 'contact_group', name=_('Contacts')),
+    )
     tag = TagFilterField(model)
 
 
-class TunnelFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
+class TunnelFilterForm(ContactModelFilterForm, TenancyFilterForm, NetBoxModelFilterSetForm):
     model = Tunnel
     fieldsets = (
-        (None, ('q', 'filter_id', 'tag')),
-        (_('Tunnel'), ('status', 'encapsulation', 'tunnel_id')),
-        (_('Security'), ('ipsec_profile_id',)),
-        (_('Tenancy'), ('tenant_group_id', 'tenant_id')),
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('status', 'encapsulation', 'tunnel_id', name=_('Tunnel')),
+        FieldSet('ipsec_profile_id', name=_('Security')),
+        FieldSet('tenant_group_id', 'tenant_id', name=_('Tenancy')),
+        FieldSet('contact', 'contact_role', 'contact_group', name=_('Contacts')),
     )
     status = forms.MultipleChoiceField(
         label=_('Status'),
@@ -72,8 +78,8 @@ class TunnelFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
 class TunnelTerminationFilterForm(NetBoxModelFilterSetForm):
     model = TunnelTermination
     fieldsets = (
-        (None, ('q', 'filter_id', 'tag')),
-        (_('Termination'), ('tunnel_id', 'role')),
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('tunnel_id', 'role', name=_('Termination')),
     )
     tunnel_id = DynamicModelMultipleChoiceField(
         queryset=Tunnel.objects.all(),
@@ -91,8 +97,10 @@ class TunnelTerminationFilterForm(NetBoxModelFilterSetForm):
 class IKEProposalFilterForm(NetBoxModelFilterSetForm):
     model = IKEProposal
     fieldsets = (
-        (None, ('q', 'filter_id', 'tag')),
-        (_('Parameters'), ('authentication_method', 'encryption_algorithm', 'authentication_algorithm', 'group')),
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet(
+            'authentication_method', 'encryption_algorithm', 'authentication_algorithm', 'group', name=_('Parameters')
+        ),
     )
     authentication_method = forms.MultipleChoiceField(
         label=_('Authentication method'),
@@ -120,8 +128,8 @@ class IKEProposalFilterForm(NetBoxModelFilterSetForm):
 class IKEPolicyFilterForm(NetBoxModelFilterSetForm):
     model = IKEPolicy
     fieldsets = (
-        (None, ('q', 'filter_id', 'tag')),
-        (_('Parameters'), ('version', 'mode', 'proposal_id')),
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('version', 'mode', 'proposal_id', name=_('Parameters')),
     )
     version = forms.MultipleChoiceField(
         label=_('IKE version'),
@@ -144,8 +152,8 @@ class IKEPolicyFilterForm(NetBoxModelFilterSetForm):
 class IPSecProposalFilterForm(NetBoxModelFilterSetForm):
     model = IPSecProposal
     fieldsets = (
-        (None, ('q', 'filter_id', 'tag')),
-        (_('Parameters'), ('encryption_algorithm', 'authentication_algorithm')),
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('encryption_algorithm', 'authentication_algorithm', name=_('Parameters')),
     )
     encryption_algorithm = forms.MultipleChoiceField(
         label=_('Encryption algorithm'),
@@ -163,8 +171,8 @@ class IPSecProposalFilterForm(NetBoxModelFilterSetForm):
 class IPSecPolicyFilterForm(NetBoxModelFilterSetForm):
     model = IPSecPolicy
     fieldsets = (
-        (None, ('q', 'filter_id', 'tag')),
-        (_('Parameters'), ('proposal_id', 'pfs_group')),
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('proposal_id', 'pfs_group', name=_('Parameters')),
     )
     proposal_id = DynamicModelMultipleChoiceField(
         queryset=IKEProposal.objects.all(),
@@ -182,8 +190,8 @@ class IPSecPolicyFilterForm(NetBoxModelFilterSetForm):
 class IPSecProfileFilterForm(NetBoxModelFilterSetForm):
     model = IPSecProfile
     fieldsets = (
-        (None, ('q', 'filter_id', 'tag')),
-        (_('Profile'), ('mode', 'ike_policy_id', 'ipsec_policy_id')),
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('mode', 'ike_policy_id', 'ipsec_policy_id', name=_('Profile')),
     )
     mode = forms.MultipleChoiceField(
         label=_('Mode'),
@@ -203,12 +211,13 @@ class IPSecProfileFilterForm(NetBoxModelFilterSetForm):
     tag = TagFilterField(model)
 
 
-class L2VPNFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
+class L2VPNFilterForm(ContactModelFilterForm, TenancyFilterForm, NetBoxModelFilterSetForm):
     model = L2VPN
     fieldsets = (
-        (None, ('q', 'filter_id', 'tag')),
-        (_('Attributes'), ('type', 'import_target_id', 'export_target_id')),
-        (_('Tenant'), ('tenant_group_id', 'tenant_id')),
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('type', 'import_target_id', 'export_target_id', name=_('Attributes')),
+        FieldSet('tenant_group_id', 'tenant_id', name=_('Tenant')),
+        FieldSet('contact', 'contact_role', 'contact_group', name=_('Contacts')),
     )
     type = forms.ChoiceField(
         label=_('Type'),
@@ -231,10 +240,11 @@ class L2VPNFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
 class L2VPNTerminationFilterForm(NetBoxModelFilterSetForm):
     model = L2VPNTermination
     fieldsets = (
-        (None, ('filter_id', 'l2vpn_id',)),
-        (_('Assigned Object'), (
+        FieldSet('filter_id', 'l2vpn_id'),
+        FieldSet(
             'assigned_object_type_id', 'region_id', 'site_id', 'device_id', 'virtual_machine_id', 'vlan_id',
-        )),
+            name=_('Assigned Object')
+        ),
     )
     l2vpn_id = DynamicModelChoiceField(
         queryset=L2VPN.objects.all(),

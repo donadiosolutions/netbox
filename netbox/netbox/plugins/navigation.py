@@ -1,7 +1,8 @@
-from netbox.navigation import MenuGroup
-from utilities.choices import ButtonColorChoices
 from django.utils.text import slugify
 from django.utils.translation import gettext as _
+
+from netbox.choices import ButtonColorChoices
+from netbox.navigation import MenuGroup
 
 __all__ = (
     'PluginMenu',
@@ -37,9 +38,10 @@ class PluginMenuItem:
     permissions = []
     buttons = []
 
-    def __init__(self, link, link_text, staff_only=False, permissions=None, buttons=None):
+    def __init__(self, link, link_text, auth_required=False, staff_only=False, permissions=None, buttons=None):
         self.link = link
         self.link_text = link_text
+        self.auth_required = auth_required
         self.staff_only = staff_only
         if permissions is not None:
             if type(permissions) not in (list, tuple):

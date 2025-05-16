@@ -69,3 +69,31 @@ CSV_DELIMITERS = {
     'semicolon': ';',
     'tab': '\t',
 }
+
+
+#
+# HTML allowed tags & attributes
+#
+
+HTML_ALLOWED_TAGS = {
+    "a", "b", "blockquote", "br", "code", "dd", "del", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6",
+    "hr", "i", "img", "li", "ol", "p", "pre", "strong", "table", "tbody", "td", "th", "thead", "tr", "ul"
+}
+
+HTML_ALLOWED_ATTRIBUTES = {
+    "a": {"href", "title"},
+    "div": {"class"},
+    "h1": {"id"},
+    "h2": {"id"},
+    "h3": {"id"},
+    "h4": {"id"},
+    "h5": {"id"},
+    "h6": {"id"},
+    "img": {"alt", "src", "title"},
+    "td": {"align"},
+    "th": {"align"},
+}
+
+HTTP_PROXY_SUPPORTED_SOCK_SCHEMAS = ['socks4', 'socks4a', 'socks4h', 'socks5', 'socks5a', 'socks5h']
+HTTP_PROXY_SOCK_RDNS_SCHEMAS = ['socks4h', 'socks4a', 'socks5h', 'socks5a']
+HTTP_PROXY_SUPPORTED_SCHEMAS = ['http', 'https', 'socks4', 'socks4a', 'socks4h', 'socks5', 'socks5a', 'socks5h']

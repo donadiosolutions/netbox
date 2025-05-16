@@ -1,17 +1,26 @@
+from typing import Iterable
+
+from django.conf import settings
 from django.contrib.auth.mixins import AccessMixin
 from django.core.exceptions import ImproperlyConfigured
 from django.urls import reverse
 from django.urls.exceptions import NoReverseMatch
 from django.utils.translation import gettext_lazy as _
 
+from netbox.plugins import PluginConfig
 from netbox.registry import registry
+from utilities.relations import get_related_models
+from utilities.request import safe_for_redirect
 from .permissions import resolve_permission
 
 __all__ = (
+    'ConditionalLoginRequiredMixin',
     'ContentTypePermissionRequiredMixin',
+    'GetRelatedModelsMixin',
     'GetReturnURLMixin',
     'ObjectPermissionRequiredMixin',
     'ViewTab',
+    'get_viewname',
     'register_model_view',
 )
 
@@ -20,10 +29,20 @@ __all__ = (
 # View Mixins
 #
 
-class ContentTypePermissionRequiredMixin(AccessMixin):
+class ConditionalLoginRequiredMixin(AccessMixin):
+    """
+    Similar to Django's LoginRequiredMixin, but enforces authentication only if LOGIN_REQUIRED is True.
+    """
+    def dispatch(self, request, *args, **kwargs):
+        if settings.LOGIN_REQUIRED and not request.user.is_authenticated:
+            return self.handle_no_permission()
+        return super().dispatch(request, *args, **kwargs)
+
+
+class ContentTypePermissionRequiredMixin(ConditionalLoginRequiredMixin):
     """
     Similar to Django's built-in PermissionRequiredMixin, but extended to check model-level permission assignments.
-    This is related to ObjectPermissionRequiredMixin, except that is does not enforce object-level permissions,
+    This is related to ObjectPermissionRequiredMixin, except that it does not enforce object-level permissions,
     and fits within NetBox's custom permission enforcement system.
 
     additional_permissions: An optional iterable of statically declared permissions to evaluate in addition to those
@@ -56,7 +75,7 @@ class ContentTypePermissionRequiredMixin(AccessMixin):
         return super().dispatch(request, *args, **kwargs)
 
 
-class ObjectPermissionRequiredMixin(AccessMixin):
+class ObjectPermissionRequiredMixin(ConditionalLoginRequiredMixin):
     """
     Similar to Django's built-in PermissionRequiredMixin, but extended to check for both model-level and object-level
     permission assignments. If the user has only object-level permissions assigned, the view's queryset is filtered
@@ -117,7 +136,7 @@ class GetReturnURLMixin:
         # First, see if `return_url` was specified as a query parameter or form data. Use this URL only if it's
         # considered safe.
         return_url = request.GET.get('return_url') or request.POST.get('return_url')
-        if return_url and return_url.startswith('/'):
+        if return_url and safe_for_redirect(return_url):
             return return_url
 
         # Next, check if the object being modified (if any) has an absolute URL.
@@ -130,14 +149,56 @@ class GetReturnURLMixin:
 
         # Attempt to dynamically resolve the list view for the object
         if hasattr(self, 'queryset'):
-            model_opts = self.queryset.model._meta
             try:
-                return reverse(f'{model_opts.app_label}:{model_opts.model_name}_list')
+                return reverse(get_viewname(self.queryset.model, 'list'))
             except NoReverseMatch:
                 pass
 
         # If all else fails, return home. Ideally this should never happen.
         return reverse('home')
+
+
+class GetRelatedModelsMixin:
+    """
+    Provides logic for collecting all related models for the currently viewed model.
+    """
+
+    def get_related_models(self, request, instance, omit=[], extra=[]):
+        """
+        Get related models of the view's `queryset` model without those listed in `omit`. Will be sorted alphabetical.
+
+        Args:
+            request: Current request being processed.
+            instance: The instance related models should be looked up for. A list of instances can be passed to match
+                related objects in this list (e.g. to find sites of a region including child regions).
+            omit: Remove relationships to these models from the result. Needs to be passed, if related models don't
+                provide a `_list` view.
+            extra: Add extra models to the list of automatically determined related models. Can be used to add indirect
+                relationships.
+        """
+        model = self.queryset.model
+        related = filter(
+            lambda m: m[0] is not model and m[0] not in omit,
+            get_related_models(model, False)
+        )
+
+        related_models = [
+            (
+                model.objects.restrict(request.user, 'view').filter(**(
+                    {f'{field}__in': instance}
+                    if isinstance(instance, Iterable)
+                    else {field: instance}
+                )),
+                f'{field}_id'
+            )
+            for model, field in related
+        ]
+        related_models.extend(extra)
+
+        return sorted(
+            filter(lambda qs: qs[0].exists(), related_models),
+            key=lambda qs: qs[0].model._meta.verbose_name.lower(),
+        )
 
 
 class ViewTab:
@@ -180,7 +241,40 @@ class ViewTab:
         return self.badge
 
 
-def register_model_view(model, name='', path=None, kwargs=None):
+#
+# Utility functions
+#
+
+def get_viewname(model, action=None, rest_api=False):
+    """
+    Return the view name for the given model and action, if valid.
+
+    :param model: The model or instance to which the view applies
+    :param action: A string indicating the desired action (if any); e.g. "add" or "list"
+    :param rest_api: A boolean indicating whether this is a REST API view
+    """
+    is_plugin = isinstance(model._meta.app_config, PluginConfig)
+    app_label = model._meta.app_label
+    model_name = model._meta.model_name
+
+    if rest_api:
+        viewname = f'{app_label}-api:{model_name}'
+        if is_plugin:
+            viewname = f'plugins-api:{viewname}'
+        if action:
+            viewname = f'{viewname}-{action}'
+
+    else:
+        viewname = f'{app_label}:{model_name}'
+        if is_plugin:
+            viewname = f'plugins:{viewname}'
+        if action:
+            viewname = f'{viewname}_{action}'
+
+    return viewname
+
+
+def register_model_view(model, name='', path=None, detail=True, kwargs=None):
     """
     This decorator can be used to "attach" a view to any model in NetBox. This is typically used to inject
     additional tabs within a model's detail view. For example, to add a custom tab to NetBox's dcim.Site model:
@@ -197,6 +291,7 @@ def register_model_view(model, name='', path=None, kwargs=None):
         name: The string used to form the view's name for URL resolution (e.g. via `reverse()`). This will be appended
             to the name of the base view for the model using an underscore. If blank, the model name will be used.
         path: The URL path by which the view can be reached (optional). If not provided, `name` will be used.
+        detail: True if the path applied to an individual object; False if it attaches to the base (list) path.
         kwargs: A dictionary of keyword arguments for the view to include when registering its URL path (optional).
     """
     def _wrapper(cls):
@@ -209,7 +304,8 @@ def register_model_view(model, name='', path=None, kwargs=None):
         registry['views'][app_label][model_name].append({
             'name': name,
             'view': cls,
-            'path': path or name,
+            'path': path if path is not None else name,
+            'detail': detail,
             'kwargs': kwargs or {},
         })
 

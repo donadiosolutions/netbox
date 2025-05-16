@@ -2,7 +2,7 @@
 
 ## What is a REST API?
 
-REST stands for [representational state transfer](https://en.wikipedia.org/wiki/Representational_state_transfer). It's a particular type of API which employs HTTP requests and [JavaScript Object Notation (JSON)](https://www.json.org/) to facilitate create, retrieve, update, and delete (CRUD) operations on objects within an application. Each type of operation is associated with a particular HTTP verb:
+REST stands for [representational state transfer](https://en.wikipedia.org/wiki/REST). It's a particular type of API which employs HTTP requests and [JavaScript Object Notation (JSON)](https://www.json.org/) to facilitate create, retrieve, update, and delete (CRUD) operations on objects within an application. Each type of operation is associated with a particular HTTP verb:
 
 * `GET`: Retrieve an object or list of objects
 * `POST`: Create an object
@@ -101,7 +101,7 @@ See the [filtering documentation](../reference/filtering.md) for more details on
 
 ## Serialization
 
-The REST API employs two types of serializers to represent model data: base serializers and nested serializers. The base serializer is used to present the complete view of a model. This includes all database table fields which comprise the model, and may include additional metadata. A base serializer includes relationships to parent objects, but **does not** include child objects. For example, the `VLANSerializer` includes a nested representation its parent VLANGroup (if any), but does not include any assigned Prefixes.
+The REST API generally represents objects in one of two ways: complete or brief. The base serializer is used to present the complete view of an object. This includes all database table fields which comprise the model, and may include additional metadata. A base serializer includes relationships to parent objects, but **does not** include child objects. For example, the `VLANSerializer` includes a nested representation its parent VLANGroup (if any), but does not include any assigned Prefixes. Serializers employ a minimal "brief" representation of related objects, which includes only the attributes prudent for identifying the object.
 
 ```json
 {
@@ -139,7 +139,7 @@ The REST API employs two types of serializers to represent model data: base seri
 
 ### Related Objects
 
-Related objects (e.g. `ForeignKey` fields) are represented using nested serializers. A nested serializer provides a minimal representation of an object, including only its direct URL and enough information to display the object to a user. When performing write API actions (`POST`, `PUT`, and `PATCH`), related objects may be specified by either numeric ID (primary key), or by a set of attributes sufficiently unique to return the desired object.
+Related objects (e.g. `ForeignKey` fields) are included using nested brief representations. This is a minimal representation of an object, including only its direct URL and enough information to display the object to a user. When performing write API actions (`POST`, `PUT`, and `PATCH`), related objects may be specified by either numeric ID (primary key), or by a set of attributes sufficiently unique to return the desired object.
 
 For example, when creating a new device, its rack can be specified by NetBox ID (PK):
 
@@ -151,7 +151,7 @@ For example, when creating a new device, its rack can be specified by NetBox ID 
 }
 ```
 
-Or by a set of nested attributes which uniquely identify the rack:
+Or by a set of attributes which uniquely identify the rack:
 
 ```json
 {
@@ -217,26 +217,34 @@ If we wanted to assign this IP address to a virtual machine interface instead, w
 
 ### Brief Format
 
-Most API endpoints support an optional "brief" format, which returns only a minimal representation of each object in the response. This is useful when you need only a list of available objects without any related data, such as when populating a drop-down list in a form. As an example, the default (complete) format of an IP address looks like this:
+Most API endpoints support an optional "brief" format, which returns only a minimal representation of each object in the response. This is useful when you need only a list of available objects without any related data, such as when populating a drop-down list in a form. As an example, the default (complete) format of a prefix looks like this:
 
-```
+```no-highlight
 GET /api/ipam/prefixes/13980/
+```
 
+```json
 {
     "id": 13980,
     "url": "http://netbox/api/ipam/prefixes/13980/",
+    "display_url": "http://netbox/api/ipam/prefixes/13980/",
+    "display": "192.0.2.0/24",
     "family": {
         "value": 4,
         "label": "IPv4"
     },
     "prefix": "192.0.2.0/24",
-    "site": {
-        "id": 3,
-        "url": "http://netbox/api/dcim/sites/17/",
-        "name": "Site 23A",
-        "slug": "site-23a"
-    },
     "vrf": null,
+    "scope_type": "dcim.site",
+    "scope_id": 3,
+    "scope": {
+        "id": 3,
+        "url": "http://netbox/api/dcim/sites/3/",
+        "display": "Site 23A",
+        "name": "Site 23A",
+        "slug": "site-23a",
+        "description": ""
+    },
     "tenant": null,
     "vlan": null,
     "status": {
@@ -250,24 +258,36 @@ GET /api/ipam/prefixes/13980/
         "slug": "staging"
     },
     "is_pool": false,
+    "mark_utilized": false,
     "description": "Example prefix",
+    "comments": "",
     "tags": [],
     "custom_fields": {},
-    "created": "2018-12-10",
-    "last_updated": "2019-03-01T20:02:46.173540Z"
+    "created": "2025-03-01T20:01:23.458302Z",
+    "last_updated": "2025-03-01T20:02:46.173540Z",
+    "children": 0,
+    "_depth": 0
 }
 ```
 
 The brief format is much more terse:
 
-```
+```no-highlight
 GET /api/ipam/prefixes/13980/?brief=1
+```
 
+```json
 {
     "id": 13980,
     "url": "http://netbox/api/ipam/prefixes/13980/",
-    "family": 4,
-    "prefix": "10.40.3.0/24"
+    "display": "192.0.2.0/24",
+    "family": {
+        "value": 4,
+        "label": "IPv4"
+    },
+    "prefix": "192.0.2.0/24",
+    "description": "Example prefix",
+    "_depth": 0
 }
 ```
 
@@ -400,25 +420,31 @@ curl -s -X POST \
 -H "Authorization: Token $TOKEN" \
 -H "Content-Type: application/json" \
 http://netbox/api/ipam/prefixes/ \
---data '{"prefix": "192.0.2.0/24", "site": 6}' | jq '.'
+--data '{"prefix": "192.0.2.0/24", "scope_type": "dcim.site", "scope_id": 6}' | jq '.'
 ```
 
 ```json
 {
   "id": 18691,
   "url": "http://netbox/api/ipam/prefixes/18691/",
+  "display_url": "http://netbox/api/ipam/prefixes/18691/",
+  "display": "192.0.2.0/24",
   "family": {
     "value": 4,
     "label": "IPv4"
   },
   "prefix": "192.0.2.0/24",
-  "site": {
+  "vrf": null,
+  "scope_type": "dcim.site",
+  "scope_id": 6,
+  "scope": {
     "id": 6,
     "url": "http://netbox/api/dcim/sites/6/",
+    "display": "US-East 4",
     "name": "US-East 4",
-    "slug": "us-east-4"
+    "slug": "us-east-4",
+    "description": ""
   },
-  "vrf": null,
   "tenant": null,
   "vlan": null,
   "status": {
@@ -427,11 +453,15 @@ http://netbox/api/ipam/prefixes/ \
   },
   "role": null,
   "is_pool": false,
+  "mark_utilized": false,
   "description": "",
+  "comments": "",
   "tags": [],
   "custom_fields": {},
-  "created": "2020-08-04",
-  "last_updated": "2020-08-04T20:08:39.007125Z"
+  "created": "2025-04-29T15:44:47.597092Z",
+  "last_updated": "2025-04-29T15:44:47.597092Z",
+  "children": 0,
+  "_depth": 0
 }
 ```
 
@@ -490,18 +520,24 @@ http://netbox/api/ipam/prefixes/18691/ \
 {
   "id": 18691,
   "url": "http://netbox/api/ipam/prefixes/18691/",
+  "display_url": "http://netbox/api/ipam/prefixes/18691/",
+  "display": "192.0.2.0/24",
   "family": {
     "value": 4,
     "label": "IPv4"
   },
   "prefix": "192.0.2.0/24",
-  "site": {
+  "vrf": null,
+  "scope_type": "dcim.site",
+  "scope_id": 6,
+  "scope": {
     "id": 6,
     "url": "http://netbox/api/dcim/sites/6/",
+    "display": "US-East 4",
     "name": "US-East 4",
-    "slug": "us-east-4"
+    "slug": "us-east-4",
+    "description": ""
   },
-  "vrf": null,
   "tenant": null,
   "vlan": null,
   "status": {
@@ -510,11 +546,15 @@ http://netbox/api/ipam/prefixes/18691/ \
   },
   "role": null,
   "is_pool": false,
+  "mark_utilized": false,
   "description": "",
+  "comments": "",
   "tags": [],
   "custom_fields": {},
-  "created": "2020-08-04",
-  "last_updated": "2020-08-04T20:14:55.709430Z"
+  "created": "2025-04-29T15:44:47.597092Z",
+  "last_updated": "2025-04-29T15:49:40.689109Z",
+  "children": 0,
+  "_depth": 0
 }
 ```
 
@@ -567,6 +607,23 @@ http://netbox/api/dcim/sites/ \
 
 !!! note
     The bulk deletion of objects is an all-or-none operation, meaning that if NetBox fails to delete any of the specified objects (e.g. due a dependency by a related object), the entire operation will be aborted and none of the objects will be deleted.
+
+## Uploading Files
+
+As JSON does not support the inclusion of binary data, files cannot be uploaded using JSON-formatted API requests. Instead, we can use form data encoding to attach a local file.
+
+For example, we can upload an image attachment using the `curl` command shown below. Note that the `@` signifies a local file on disk to be uploaded.
+
+```no-highlight
+curl -X POST \
+-H "Authorization: Token $TOKEN" \
+-H "Accept: application/json; indent=4" \
+-F "object_type=dcim.site" \
+-F "object_id=2" \
+-F "name=attachment1.png" \
+-F "image=@local_file.png" \
+http://netbox/api/extras/image-attachments/
+```
 
 ## Authentication
 
@@ -653,6 +710,7 @@ Note that we are _not_ passing an existing REST API token with this request. If 
 {
     "id": 6,
     "url": "https://netbox/api/users/tokens/6/",
+    "display_url": "https://netbox/api/users/tokens/6/",
     "display": "**********************************3c9cb9",
     "user": {
         "id": 2,

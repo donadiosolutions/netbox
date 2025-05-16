@@ -5,7 +5,7 @@ from django.forms import BoundField
 from django.urls import reverse
 
 from utilities.forms import widgets
-from utilities.utils import get_viewname
+from utilities.views import get_viewname
 
 __all__ = (
     'DynamicChoiceField',
@@ -63,10 +63,23 @@ class DynamicModelChoiceMixin:
         initial_params: A dictionary of child field references to use for selecting a parent field's initial value
         null_option: The string used to represent a null selection (if any)
         disabled_indicator: The name of the field which, if populated, will disable selection of the
-            choice (optional)
-        fetch_trigger: The event type which will cause the select element to
-            fetch data from the API. Must be 'load', 'open', or 'collapse'. (optional)
+            choice (DEPRECATED: pass `context={'disabled': '$fieldname'}` instead)
+        context: A mapping of <option> template variables to their API data keys (optional; see below)
         selector: Include an advanced object selection widget to assist the user in identifying the desired object
+        quick_add: Include a widget to quickly create a new related object for assignment. NOTE: Nested usage of
+            quick-add fields is not currently supported.
+        quick_add_params: A dictionary of initial data to include when launching the quick-add form (optional). The
+            token string "$pk" will be replaced with the primary key of the form's instance, if any.
+
+    Context keys:
+        value: The name of the attribute which contains the option's value (default: 'id')
+        label: The name of the attribute used as the option's human-friendly label (default: 'display')
+        description: The name of the attribute to use as a description (default: 'description')
+        depth: The name of the attribute which indicates an object's depth within a recursive hierarchy; must be a
+            positive integer (default: '_depth')
+        disabled: The name of the attribute which, if true, signifies that the option should be disabled
+        parent: The name of the attribute which represents the object's parent object (e.g. device for an interface)
+        count: The name of the attribute which contains a numeric count of related objects
     """
     filter = django_filters.ModelChoiceFilter
     widget = widgets.APISelect
@@ -79,9 +92,10 @@ class DynamicModelChoiceMixin:
             initial_params=None,
             null_option=None,
             disabled_indicator=None,
-            fetch_trigger=None,
-            empty_label=None,
+            context=None,
             selector=False,
+            quick_add=False,
+            quick_add_params=None,
             **kwargs
     ):
         self.model = queryset.model
@@ -89,39 +103,26 @@ class DynamicModelChoiceMixin:
         self.initial_params = initial_params or {}
         self.null_option = null_option
         self.disabled_indicator = disabled_indicator
-        self.fetch_trigger = fetch_trigger
+        self.context = context or {}
         self.selector = selector
-
-        # to_field_name is set by ModelChoiceField.__init__(), but we need to set it early for reference
-        # by widget_attrs()
-        self.to_field_name = kwargs.get('to_field_name')
-        self.empty_option = empty_label or ""
+        self.quick_add = quick_add
+        self.quick_add_params = quick_add_params or {}
 
         super().__init__(queryset, **kwargs)
 
     def widget_attrs(self, widget):
-        attrs = {
-            'data-empty-option': self.empty_option
-        }
-
-        # Set value-field attribute if the field specifies to_field_name
-        if self.to_field_name:
-            attrs['value-field'] = self.to_field_name
+        attrs = {}
 
         # Set the string used to represent a null option
         if self.null_option is not None:
             attrs['data-null-option'] = self.null_option
 
-        # Set the disabled indicator, if any
-        if self.disabled_indicator is not None:
-            attrs['disabled-indicator'] = self.disabled_indicator
-
-        # Set the fetch trigger, if any.
-        if self.fetch_trigger is not None:
-            attrs['data-fetch-trigger'] = self.fetch_trigger
+        # Set any custom template attributes for TomSelect
+        for var, accessor in self.context.items():
+            attrs[f'ts-{var}-field'] = accessor
 
         # Attach any static query parameters
-        if (len(self.query_params) > 0):
+        if len(self.query_params) > 0:
             widget.add_query_params(self.query_params)
 
         # Include object selector?
@@ -132,6 +133,7 @@ class DynamicModelChoiceMixin:
 
     def get_bound_field(self, form, field_name):
         bound_field = BoundField(form, self, field_name)
+        widget = bound_field.field.widget
 
         # Set initial value based on prescribed child fields (if not already set)
         if not self.initial and self.initial_params:
@@ -149,7 +151,7 @@ class DynamicModelChoiceMixin:
 
         if data:
             # When the field is multiple choice pass the data as a list if it's not already
-            if isinstance(bound_field.field, DynamicModelMultipleChoiceField) and not type(data) is list:
+            if isinstance(bound_field.field, DynamicModelMultipleChoiceField) and type(data) is not list:
                 data = [data]
 
             field_name = getattr(self, 'to_field_name') or 'pk'
@@ -162,11 +164,31 @@ class DynamicModelChoiceMixin:
         else:
             self.queryset = self.queryset.none()
 
+        # Normalize the widget choices to a list to accommodate the "null" option, if set
+        if self.null_option:
+            widget.choices = [
+                (settings.FILTERS_NULL_CHOICE_VALUE, self.null_option),
+                *[c for c in widget.choices]
+            ]
+
         # Set the data URL on the APISelect widget (if not already set)
-        widget = bound_field.field.widget
         if not widget.attrs.get('data-url'):
             viewname = get_viewname(self.queryset.model, action='list', rest_api=True)
             widget.attrs['data-url'] = reverse(viewname)
+
+        # Include quick add?
+        if self.quick_add:
+            widget.quick_add_context = {
+                'url': reverse(get_viewname(self.model, 'add')),
+                'params': {},
+            }
+            for k, v in self.quick_add_params.items():
+                if v == '$pk':
+                    # Replace "$pk" token with the primary key of the form's instance (if any)
+                    if getattr(form.instance, 'pk', None):
+                        widget.quick_add_context['params'][k] = form.instance.pk
+                else:
+                    widget.quick_add_context['params'][k] = v
 
         return bound_field
 
@@ -199,6 +221,6 @@ class DynamicModelMultipleChoiceField(DynamicModelChoiceMixin, forms.ModelMultip
         # string 'null'.  This will check for that condition and gracefully handle the conversion to a NoneType.
         if self.null_option is not None and settings.FILTERS_NULL_CHOICE_VALUE in value:
             value = [v for v in value if v != settings.FILTERS_NULL_CHOICE_VALUE]
-            return [None, *value]
+            return [None, *super().clean(value)]
 
         return super().clean(value)

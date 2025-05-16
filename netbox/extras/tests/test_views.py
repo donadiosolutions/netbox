@@ -1,16 +1,13 @@
-import urllib.parse
-import uuid
-
-from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
 
+from core.events import *
+from core.models import ObjectType
 from dcim.models import DeviceType, Manufacturer, Site
 from extras.choices import *
 from extras.models import *
+from users.models import Group, User
 from utilities.testing import ViewTestCases, TestCase
-
-User = get_user_model()
 
 
 class CustomFieldTestCase(ViewTestCases.PrimaryObjectViewTestCase):
@@ -19,7 +16,7 @@ class CustomFieldTestCase(ViewTestCases.PrimaryObjectViewTestCase):
     @classmethod
     def setUpTestData(cls):
 
-        site_ct = ContentType.objects.get_for_model(Site)
+        site_type = ObjectType.objects.get_for_model(Site)
         CustomFieldChoiceSet.objects.create(
             name='Choice Set 1',
             extra_choices=(
@@ -36,13 +33,13 @@ class CustomFieldTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         )
         for customfield in custom_fields:
             customfield.save()
-            customfield.content_types.add(site_ct)
+            customfield.object_types.add(site_type)
 
         cls.form_data = {
             'name': 'field_x',
             'label': 'Field X',
             'type': 'text',
-            'content_types': [site_ct.pk],
+            'object_types': [site_type.pk],
             'search_weight': 2000,
             'filter_logic': CustomFieldFilterLogicChoices.FILTER_EXACT,
             'default': None,
@@ -53,7 +50,7 @@ class CustomFieldTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         }
 
         cls.csv_data = (
-            'name,label,type,content_types,object_type,weight,search_weight,filter_logic,choice_set,validation_minimum,validation_maximum,validation_regex,ui_visible,ui_editable',
+            'name,label,type,object_types,related_object_type,weight,search_weight,filter_logic,choice_set,validation_minimum,validation_maximum,validation_regex,ui_visible,ui_editable',
             'field4,Field 4,text,dcim.site,,100,1000,exact,,,,[a-z]{3},always,yes',
             'field5,Field 5,integer,dcim.site,,100,2000,exact,,1,100,,always,yes',
             'field6,Field 6,select,dcim.site,,100,3000,exact,Choice Set 1,,,,always,yes',
@@ -137,7 +134,7 @@ class CustomLinkTestCase(ViewTestCases.PrimaryObjectViewTestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site_ct = ContentType.objects.get_for_model(Site)
+        site_type = ObjectType.objects.get_for_model(Site)
         custom_links = (
             CustomLink(name='Custom Link 1', enabled=True, link_text='Link 1', link_url='http://example.com/?1'),
             CustomLink(name='Custom Link 2', enabled=True, link_text='Link 2', link_url='http://example.com/?2'),
@@ -145,11 +142,11 @@ class CustomLinkTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         )
         CustomLink.objects.bulk_create(custom_links)
         for i, custom_link in enumerate(custom_links):
-            custom_link.content_types.set([site_ct])
+            custom_link.object_types.set([site_type])
 
         cls.form_data = {
             'name': 'Custom Link X',
-            'content_types': [site_ct.pk],
+            'object_types': [site_type.pk],
             'enabled': False,
             'weight': 100,
             'button_class': CustomLinkButtonClassChoices.DEFAULT,
@@ -158,7 +155,7 @@ class CustomLinkTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         }
 
         cls.csv_data = (
-            "name,content_types,enabled,weight,button_class,link_text,link_url",
+            "name,object_types,enabled,weight,button_class,link_text,link_url",
             "Custom Link 4,dcim.site,True,100,blue,Link 4,http://exmaple.com/?4",
             "Custom Link 5,dcim.site,True,100,blue,Link 5,http://exmaple.com/?5",
             "Custom Link 6,dcim.site,False,100,blue,Link 6,http://exmaple.com/?6",
@@ -183,7 +180,7 @@ class SavedFilterTestCase(ViewTestCases.PrimaryObjectViewTestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site_ct = ContentType.objects.get_for_model(Site)
+        site_type = ObjectType.objects.get_for_model(Site)
 
         users = (
             User(username='User 1'),
@@ -217,12 +214,12 @@ class SavedFilterTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         )
         SavedFilter.objects.bulk_create(saved_filters)
         for i, savedfilter in enumerate(saved_filters):
-            savedfilter.content_types.set([site_ct])
+            savedfilter.object_types.set([site_type])
 
         cls.form_data = {
             'name': 'Saved Filter X',
             'slug': 'saved-filter-x',
-            'content_types': [site_ct.pk],
+            'object_types': [site_type.pk],
             'description': 'Foo',
             'weight': 1000,
             'enabled': True,
@@ -231,7 +228,7 @@ class SavedFilterTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         }
 
         cls.csv_data = (
-            'name,slug,content_types,weight,enabled,shared,parameters',
+            'name,slug,object_types,weight,enabled,shared,parameters',
             'Saved Filter 4,saved-filter-4,dcim.device,400,True,True,{"foo": "a"}',
             'Saved Filter 5,saved-filter-5,dcim.device,500,True,True,{"foo": "b"}',
             'Saved Filter 6,saved-filter-6,dcim.device,600,True,True,{"foo": "c"}',
@@ -302,7 +299,7 @@ class ExportTemplateTestCase(ViewTestCases.PrimaryObjectViewTestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site_ct = ContentType.objects.get_for_model(Site)
+        site_type = ObjectType.objects.get_for_model(Site)
         TEMPLATE_CODE = """{% for object in queryset %}{{ object }}{% endfor %}"""
 
         export_templates = (
@@ -312,16 +309,16 @@ class ExportTemplateTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         )
         ExportTemplate.objects.bulk_create(export_templates)
         for et in export_templates:
-            et.content_types.set([site_ct])
+            et.object_types.set([site_type])
 
         cls.form_data = {
             'name': 'Export Template X',
-            'content_types': [site_ct.pk],
+            'object_types': [site_type.pk],
             'template_code': TEMPLATE_CODE,
         }
 
         cls.csv_data = (
-            "name,content_types,template_code",
+            "name,object_types,template_code",
             f"Export Template 4,dcim.site,{TEMPLATE_CODE}",
             f"Export Template 5,dcim.site,{TEMPLATE_CODE}",
             f"Export Template 6,dcim.site,{TEMPLATE_CODE}",
@@ -396,23 +393,21 @@ class EventRulesTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         for webhook in webhooks:
             webhook.save()
 
-        site_ct = ContentType.objects.get_for_model(Site)
+        site_type = ObjectType.objects.get_for_model(Site)
         event_rules = (
-            EventRule(name='EventRule 1', type_create=True, action_object=webhooks[0]),
-            EventRule(name='EventRule 2', type_create=True, action_object=webhooks[1]),
-            EventRule(name='EventRule 3', type_create=True, action_object=webhooks[2]),
+            EventRule(name='EventRule 1', event_types=[OBJECT_CREATED], action_object=webhooks[0]),
+            EventRule(name='EventRule 2', event_types=[OBJECT_CREATED], action_object=webhooks[1]),
+            EventRule(name='EventRule 3', event_types=[OBJECT_CREATED], action_object=webhooks[2]),
         )
         for event in event_rules:
             event.save()
-            event.content_types.add(site_ct)
+            event.object_types.add(site_type)
 
         webhook_ct = ContentType.objects.get_for_model(Webhook)
         cls.form_data = {
             'name': 'Event X',
-            'content_types': [site_ct.pk],
-            'type_create': False,
-            'type_update': True,
-            'type_delete': True,
+            'object_types': [site_type.pk],
+            'event_types': [OBJECT_UPDATED, OBJECT_DELETED],
             'conditions': None,
             'action_type': 'webhook',
             'action_object_type': webhook_ct.pk,
@@ -422,8 +417,8 @@ class EventRulesTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         }
 
         cls.csv_data = (
-            "name,content_types,type_create,action_type,action_object",
-            "Webhook 4,dcim.site,True,webhook,Webhook 1",
+            'name,object_types,event_types,action_type,action_object',
+            f'Webhook 4,dcim.site,"{OBJECT_CREATED},{OBJECT_UPDATED}",webhook,Webhook 1',
         )
 
         cls.csv_update_data = (
@@ -434,7 +429,7 @@ class EventRulesTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         )
 
         cls.bulk_edit_data = {
-            'type_update': True,
+            'description': 'New description',
         }
 
 
@@ -566,43 +561,6 @@ class ConfigTemplateTestCase(
         }
 
 
-# TODO: Convert to StandardTestCases.Views
-class ObjectChangeTestCase(TestCase):
-    user_permissions = (
-        'extras.view_objectchange',
-    )
-
-    @classmethod
-    def setUpTestData(cls):
-
-        site = Site(name='Site 1', slug='site-1')
-        site.save()
-
-        # Create three ObjectChanges
-        user = User.objects.create_user(username='testuser2')
-        for i in range(1, 4):
-            oc = site.to_objectchange(action=ObjectChangeActionChoices.ACTION_UPDATE)
-            oc.user = user
-            oc.request_id = uuid.uuid4()
-            oc.save()
-
-    def test_objectchange_list(self):
-
-        url = reverse('extras:objectchange_list')
-        params = {
-            "user": User.objects.first().pk,
-        }
-
-        response = self.client.get('{}?{}'.format(url, urllib.parse.urlencode(params)))
-        self.assertHttpStatus(response, 200)
-
-    def test_objectchange(self):
-
-        objectchange = ObjectChange.objects.first()
-        response = self.client.get(objectchange.get_absolute_url())
-        self.assertHttpStatus(response, 200)
-
-
 class JournalEntryTestCase(
     # ViewTestCases.GetObjectViewTestCase,
     ViewTestCases.CreateObjectViewTestCase,
@@ -651,7 +609,7 @@ class CustomLinkTest(TestCase):
             new_window=False
         )
         customlink.save()
-        customlink.content_types.set([ContentType.objects.get_for_model(Site)])
+        customlink.object_types.set([ObjectType.objects.get_for_model(Site)])
 
         site = Site(name='Test Site', slug='test-site')
         site.save()
@@ -659,3 +617,166 @@ class CustomLinkTest(TestCase):
         response = self.client.get(site.get_absolute_url(), follow=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(f'FOO {site.name} BAR', str(response.content))
+
+
+class SubscriptionTestCase(
+    ViewTestCases.CreateObjectViewTestCase,
+    ViewTestCases.DeleteObjectViewTestCase,
+    ViewTestCases.ListObjectsViewTestCase,
+    ViewTestCases.BulkDeleteObjectsViewTestCase
+):
+    model = Subscription
+
+    @classmethod
+    def setUpTestData(cls):
+        site_ct = ContentType.objects.get_for_model(Site)
+        sites = (
+            Site(name='Site 1', slug='site-1'),
+            Site(name='Site 2', slug='site-2'),
+            Site(name='Site 3', slug='site-3'),
+            Site(name='Site 4', slug='site-4'),
+        )
+        Site.objects.bulk_create(sites)
+
+        cls.form_data = {
+            'object_type': site_ct.pk,
+            'object_id': sites[3].pk,
+        }
+
+    def setUp(self):
+        super().setUp()
+
+        sites = Site.objects.all()
+        user = self.user
+
+        subscriptions = (
+            Subscription(object=sites[0], user=user),
+            Subscription(object=sites[1], user=user),
+            Subscription(object=sites[2], user=user),
+        )
+        Subscription.objects.bulk_create(subscriptions)
+
+    def _get_url(self, action, instance=None):
+        if action == 'list':
+            return reverse('account:subscriptions')
+        return super()._get_url(action, instance)
+
+    def test_list_objects_anonymous(self):
+        self.client.logout()
+        url = reverse('account:subscriptions')
+        login_url = reverse('login')
+        self.assertRedirects(self.client.get(url), f'{login_url}?next={url}')
+
+    def test_list_objects_with_permission(self):
+        return
+
+    def test_list_objects_with_constrained_permission(self):
+        return
+
+
+class NotificationGroupTestCase(ViewTestCases.PrimaryObjectViewTestCase):
+    model = NotificationGroup
+
+    @classmethod
+    def setUpTestData(cls):
+        users = (
+            User(username='User 1'),
+            User(username='User 2'),
+            User(username='User 3'),
+        )
+        User.objects.bulk_create(users)
+        groups = (
+            Group(name='Group 1'),
+            Group(name='Group 2'),
+            Group(name='Group 3'),
+        )
+        Group.objects.bulk_create(groups)
+
+        notification_groups = (
+            NotificationGroup(name='Notification Group 1'),
+            NotificationGroup(name='Notification Group 2'),
+            NotificationGroup(name='Notification Group 3'),
+        )
+        NotificationGroup.objects.bulk_create(notification_groups)
+        for i, notification_group in enumerate(notification_groups):
+            notification_group.users.add(users[i])
+            notification_group.groups.add(groups[i])
+
+        cls.form_data = {
+            'name': 'Notification Group X',
+            'description': 'Blah',
+            'users': [users[0].pk, users[1].pk],
+            'groups': [groups[0].pk, groups[1].pk],
+        }
+
+        cls.csv_data = (
+            'name,description,users,groups',
+            'Notification Group 4,Foo,"User 1,User 2","Group 1,Group 2"',
+            'Notification Group 5,Bar,"User 1,User 2","Group 1,Group 2"',
+            'Notification Group 6,Baz,"User 1,User 2","Group 1,Group 2"',
+        )
+
+        cls.csv_update_data = (
+            "id,name",
+            f"{notification_groups[0].pk},Notification Group 7",
+            f"{notification_groups[1].pk},Notification Group 8",
+            f"{notification_groups[2].pk},Notification Group 9",
+        )
+
+        cls.bulk_edit_data = {
+            'description': 'New description',
+        }
+
+
+class NotificationTestCase(
+    ViewTestCases.DeleteObjectViewTestCase,
+    ViewTestCases.ListObjectsViewTestCase,
+    ViewTestCases.BulkDeleteObjectsViewTestCase
+):
+    model = Notification
+
+    @classmethod
+    def setUpTestData(cls):
+        site_ct = ContentType.objects.get_for_model(Site)
+        sites = (
+            Site(name='Site 1', slug='site-1'),
+            Site(name='Site 2', slug='site-2'),
+            Site(name='Site 3', slug='site-3'),
+            Site(name='Site 4', slug='site-4'),
+        )
+        Site.objects.bulk_create(sites)
+
+        cls.form_data = {
+            'object_type': site_ct.pk,
+            'object_id': sites[3].pk,
+        }
+
+    def setUp(self):
+        super().setUp()
+
+        sites = Site.objects.all()
+        user = self.user
+
+        notifications = (
+            Notification(object=sites[0], user=user),
+            Notification(object=sites[1], user=user),
+            Notification(object=sites[2], user=user),
+        )
+        Notification.objects.bulk_create(notifications)
+
+    def _get_url(self, action, instance=None):
+        if action == 'list':
+            return reverse('account:notifications')
+        return super()._get_url(action, instance)
+
+    def test_list_objects_anonymous(self):
+        self.client.logout()
+        url = reverse('account:notifications')
+        login_url = reverse('login')
+        self.assertRedirects(self.client.get(url), f'{login_url}?next={url}')
+
+    def test_list_objects_with_permission(self):
+        return
+
+    def test_list_objects_with_constrained_permission(self):
+        return

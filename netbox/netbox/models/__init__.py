@@ -3,12 +3,14 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.validators import ValidationError
 from django.db import models
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from mptt.models import MPTTModel, TreeForeignKey
 
 from netbox.models.features import *
 from utilities.mptt import TreeManager
 from utilities.querysets import RestrictedQuerySet
+from utilities.views import get_viewname
 
 
 __all__ = (
@@ -29,6 +31,7 @@ class NetBoxFeatureSet(
     CustomValidationMixin,
     ExportTemplatesMixin,
     JournalingMixin,
+    NotificationsMixin,
     TagsMixin,
     EventRulesMixin
 ):
@@ -38,6 +41,9 @@ class NetBoxFeatureSet(
     @property
     def docs_url(self):
         return f'{settings.STATIC_URL}docs/models/{self._meta.app_label}/{self._meta.model_name}/'
+
+    def get_absolute_url(self):
+        return reverse(get_viewname(self), args=[self.pk])
 
 
 #
@@ -161,7 +167,7 @@ class NestedGroupModel(NetBoxFeatureSet, MPTTModel):
         super().clean()
 
         # An MPTT model cannot be its own parent
-        if self.pk and self.parent and self.parent in self.get_descendants(include_self=True):
+        if not self._state.adding and self.parent and self.parent in self.get_descendants(include_self=True):
             raise ValidationError({
                 "parent": "Cannot assign self or child {type} as parent.".format(type=self._meta.verbose_name)
             })

@@ -2,7 +2,7 @@
 
 ## ALLOW_TOKEN_RETRIEVAL
 
-Default: True
+Default: `True`
 
 If disabled, the values of API tokens will not be displayed after each token's initial creation. A user **must** record the value of a token prior to its creation, or it will be lost. Note that this affects _all_ users, regardless of assigned permissions.
 
@@ -20,24 +20,34 @@ A list of permitted URL schemes referenced when rendering links within NetBox. N
 
 ## AUTH_PASSWORD_VALIDATORS
 
-This parameter acts as a pass-through for configuring Django's built-in password validators for local user accounts. If configured, these will be applied whenever a user's password is updated to ensure that it meets minimum criteria such as length or complexity. An example is provided below. For more detail on the available options, please see [the Django documentation](https://docs.djangoproject.com/en/stable/topics/auth/passwords/#password-validation).
+This parameter acts as a pass-through for configuring Django's built-in password validators for local user accounts. These rules are applied whenever a user's password is created or updated to ensure that it meets minimum criteria such as length or complexity. The default configuration is shown below.
 
 ```python
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-        'OPTIONS': {
-            'min_length': 10,
-        }
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {
+            "min_length": 12,
+        },
+    },
+    {
+        "NAME": "utilities.password_validation.AlphanumericPasswordValidator",
     },
 ]
 ```
+
+The default configuration enforces the follow criteria:
+
+* A password must be at least 12 characters in length.
+* A password must have at least one uppercase letter, one lowercase letter, and one numeric digit.
+
+Although it is not recommended, the default validation rules can be disabled by setting `AUTH_PASSWORD_VALIDATORS = []` in the configuration file. For more detail on customizing password validation, please see [the Django documentation](https://docs.djangoproject.com/en/stable/topics/auth/passwords/#password-validation).
 
 ---
 
 ## CORS_ORIGIN_ALLOW_ALL
 
-Default: False
+Default: `False`
 
 If True, cross-origin resource sharing (CORS) requests will be accepted from all origins. If False, a whitelist will be used (see below).
 
@@ -69,7 +79,7 @@ The name of the cookie to use for the cross-site request forgery (CSRF) authenti
 
 ## CSRF_COOKIE_SECURE
 
-Default: False
+Default: `False`
 
 If true, the cookie employed for cross-site request forgery (CSRF) protection will be marked as secure, meaning that it can only be sent across an HTTPS connection.
 
@@ -91,8 +101,6 @@ CSRF_TRUSTED_ORIGINS = (
 ---
 
 ## DEFAULT_PERMISSIONS
-
-!!! info "This parameter was introduced in NetBox v3.6."
 
 Default:
 
@@ -151,7 +159,7 @@ EXEMPT_VIEW_PERMISSIONS = ['*']
 
 ## LOGIN_PERSISTENCE
 
-Default: False
+Default: `False`
 
 If true, the lifetime of a user's authentication session will be automatically reset upon each valid request. For example, if [`LOGIN_TIMEOUT`](#login_timeout) is configured to 14 days (the default), and a user whose session is due to expire in five days makes a NetBox request (with a valid session cookie), the session's lifetime will be reset to 14 days.
 
@@ -161,15 +169,18 @@ Note that enabling this setting causes NetBox to update a user's session in the 
 
 ## LOGIN_REQUIRED
 
-Default: False
+Default: `True`
 
-Setting this to True will permit only authenticated users to access any part of NetBox. By default, anonymous users are permitted to access most data in NetBox but not make any changes.
+When enabled, only authenticated users are permitted to access any part of NetBox. Disabling this will allow unauthenticated users to access most areas of NetBox (but not make any changes).
+
+!!! info "Changed in NetBox v4.0.2"
+    Prior to NetBox v4.0.2, this setting was disabled by default.
 
 ---
 
 ## LOGIN_TIMEOUT
 
-Default: 1209600 seconds (14 days)
+Default: `1209600` seconds (14 days)
 
 The lifetime (in seconds) of the authentication cookie issued to a NetBox user upon login.
 
@@ -185,7 +196,7 @@ The view name or URL to which a user is redirected after logging out.
 
 ## SECURE_HSTS_INCLUDE_SUBDOMAINS
 
-Default: False
+Default: `False`
 
 If true, the `includeSubDomains` directive will be included in the HTTP Strict Transport Security (HSTS) header. This directive instructs the browser to apply the HSTS policy to all subdomains of the current domain.
 
@@ -193,7 +204,7 @@ If true, the `includeSubDomains` directive will be included in the HTTP Strict T
 
 ## SECURE_HSTS_PRELOAD
 
-Default: False
+Default: `False`
 
 If true, the `preload` directive will be included in the HTTP Strict Transport Security (HSTS) header. This directive instructs the browser to preload the site in HTTPS. Browsers that use the HSTS preload list will force the site to be accessed via HTTPS even if the user types HTTP in the address bar.
 
@@ -201,7 +212,7 @@ If true, the `preload` directive will be included in the HTTP Strict Transport S
 
 ## SECURE_HSTS_SECONDS
 
-Default: 0
+Default: `0`
 
 If set to a non-zero integer value, the SecurityMiddleware sets the HTTP Strict Transport Security (HSTS) header on all responses that do not already have it. This will instruct the browser that the website must be accessed via HTTPS, blocking any HTTP request.
 
@@ -209,7 +220,7 @@ If set to a non-zero integer value, the SecurityMiddleware sets the HTTP Strict 
 
 ## SECURE_SSL_REDIRECT
 
-Default: False
+Default: `False`
 
 If true, all non-HTTPS requests will be automatically redirected to use HTTPS.
 
@@ -228,7 +239,7 @@ The name used for the session cookie. See the [Django documentation](https://doc
 
 ## SESSION_COOKIE_SECURE
 
-Default: False
+Default: `False`
 
 If true, the cookie employed for session authentication will be marked as secure, meaning that it can only be sent across an HTTPS connection.
 
@@ -236,6 +247,6 @@ If true, the cookie employed for session authentication will be marked as secure
 
 ## SESSION_FILE_PATH
 
-Default: None
+Default: `None`
 
 HTTP session data is used to track authenticated users when they access NetBox. By default, NetBox stores session data in its PostgreSQL database. However, this inhibits authentication to a standby instance of NetBox without write access to the database. Alternatively, a local file path may be specified here and NetBox will store session data as files instead of using the database. Note that the NetBox system user must have read and write permissions to this path.

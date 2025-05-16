@@ -1,23 +1,21 @@
 import itertools
-from collections import defaultdict
 
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Sum
 from django.dispatch import Signal
-from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
-from core.models import ContentType
+from core.models import ObjectType
 from dcim.choices import *
 from dcim.constants import *
 from dcim.fields import PathField
 from dcim.utils import decompile_path_node, object_to_path_node
 from netbox.models import ChangeLoggedModel, PrimaryModel
-from utilities.fields import ColorField
+from utilities.conversion import to_meters
+from utilities.exceptions import AbortRequest
+from utilities.fields import ColorField, GenericArrayForeignKey
 from utilities.querysets import RestrictedQuerySet
-from utilities.utils import to_meters
 from wireless.models import WirelessLink
 from .device_components import FrontPort, RearPort, PathEndpoint
 
@@ -27,6 +25,7 @@ __all__ = (
     'CableTermination',
 )
 
+from ..exceptions import UnsupportedCablePath
 
 trace_paths = Signal()
 
@@ -43,7 +42,8 @@ class Cable(PrimaryModel):
         verbose_name=_('type'),
         max_length=50,
         choices=CableTypeChoices,
-        blank=True
+        blank=True,
+        null=True
     )
     status = models.CharField(
         verbose_name=_('status'),
@@ -79,6 +79,7 @@ class Cable(PrimaryModel):
         max_length=50,
         choices=CableLengthUnitChoices,
         blank=True,
+        null=True
     )
     # Stores the normalized length (in meters) for database ordering
     _abs_length = models.DecimalField(
@@ -87,6 +88,8 @@ class Cable(PrimaryModel):
         blank=True,
         null=True
     )
+
+    clone_fields = ('tenant', 'type',)
 
     class Meta:
         ordering = ('pk',)
@@ -113,9 +116,6 @@ class Cable(PrimaryModel):
     def __str__(self):
         pk = self.pk or self._pk
         return self.label or f'#{pk}'
-
-    def get_absolute_url(self):
-        return reverse('dcim:cable', args=[self.pk])
 
     @property
     def a_terminations(self):
@@ -162,7 +162,7 @@ class Cable(PrimaryModel):
         if self.length is not None and not self.length_unit:
             raise ValidationError(_("Must specify a unit when setting a cable length"))
 
-        if self.pk is None and (not self.a_terminations or not self.b_terminations):
+        if self._state.adding and self.pk is None and (not self.a_terminations or not self.b_terminations):
             raise ValidationError(_("Must define A and B terminations when creating a new cable."))
 
         if self._terminations_modified:
@@ -208,7 +208,7 @@ class Cable(PrimaryModel):
 
         # Clear length_unit if no length is defined
         if self.length is None:
-            self.length_unit = ''
+            self.length_unit = None
 
         super().save(*args, **kwargs)
 
@@ -236,8 +236,10 @@ class Cable(PrimaryModel):
             for termination in self.b_terminations:
                 if not termination.pk or termination not in b_terminations:
                     CableTermination(cable=self, cable_end='B', termination=termination).save()
-
-        trace_paths.send(Cable, instance=self, created=_created)
+        try:
+            trace_paths.send(Cable, instance=self, created=_created)
+        except UnsupportedCablePath as e:
+            raise AbortRequest(e)
 
     def get_status_color(self):
         return LinkStatusChoices.colors.get(self.status)
@@ -318,10 +320,14 @@ class CableTermination(ChangeLoggedModel):
         super().clean()
 
         # Check for existing termination
-        existing_termination = CableTermination.objects.exclude(cable=self.cable).filter(
+        qs = CableTermination.objects.filter(
             termination_type=self.termination_type,
             termination_id=self.termination_id
-        ).first()
+        )
+        if self.cable.pk:
+            qs = qs.exclude(cable=self.cable)
+
+        existing_termination = qs.first()
         if existing_termination is not None:
             raise ValidationError(
                 _("Duplicate termination found for {app_label}.{model} {termination_id}: cable {cable_pk}".format(
@@ -340,7 +346,7 @@ class CableTermination(ChangeLoggedModel):
             )
 
         # A CircuitTermination attached to a ProviderNetwork cannot have a Cable
-        if self.termination_type.model == 'circuittermination' and self.termination.provider_network is not None:
+        if self.termination_type.model == 'circuittermination' and self.termination._provider_network is not None:
             raise ValidationError(_("Circuit terminations attached to a provider network may not be cabled."))
 
     def save(self, *args, **kwargs):
@@ -351,20 +357,20 @@ class CableTermination(ChangeLoggedModel):
         super().save(*args, **kwargs)
 
         # Set the cable on the terminating object
-        termination_model = self.termination._meta.model
-        termination_model.objects.filter(pk=self.termination_id).update(
-            cable=self.cable,
-            cable_end=self.cable_end
-        )
+        termination = self.termination._meta.model.objects.get(pk=self.termination_id)
+        termination.snapshot()
+        termination.cable = self.cable
+        termination.cable_end = self.cable_end
+        termination.save()
 
     def delete(self, *args, **kwargs):
 
         # Delete the cable association on the terminating object
-        termination_model = self.termination._meta.model
-        termination_model.objects.filter(pk=self.termination_id).update(
-            cable=None,
-            cable_end=''
-        )
+        termination = self.termination._meta.model.objects.get(pk=self.termination_id)
+        termination.snapshot()
+        termination.cable = None
+        termination.cable_end = None
+        termination.save()
 
         super().delete(*args, **kwargs)
 
@@ -477,22 +483,25 @@ class CablePath(models.Model):
     def origin_type(self):
         if self.path:
             ct_id, _ = decompile_path_node(self.path[0][0])
-            return ContentType.objects.get_for_id(ct_id)
+            return ObjectType.objects.get_for_id(ct_id)
 
     @property
     def destination_type(self):
         if self.is_complete:
             ct_id, _ = decompile_path_node(self.path[-1][0])
-            return ContentType.objects.get_for_id(ct_id)
+            return ObjectType.objects.get_for_id(ct_id)
 
     @property
-    def path_objects(self):
-        """
-        Cache and return the complete path as lists of objects, derived from their annotation within the path.
-        """
-        if not hasattr(self, '_path_objects'):
-            self._path_objects = self._get_path()
-        return self._path_objects
+    def _path_decompiled(self):
+        res = []
+        for step in self.path:
+            nodes = []
+            for node in step:
+                nodes.append(decompile_path_node(node))
+            res.append(nodes)
+        return res
+
+    path_objects = GenericArrayForeignKey("_path_decompiled")
 
     @property
     def origins(self):
@@ -527,8 +536,8 @@ class CablePath(models.Model):
             return None
 
         # Ensure all originating terminations are attached to the same link
-        if len(terminations) > 1:
-            assert all(t.link == terminations[0].link for t in terminations[1:])
+        if len(terminations) > 1 and not all(t.link == terminations[0].link for t in terminations[1:]):
+            raise UnsupportedCablePath(_("All originating terminations must be attached to the same link"))
 
         path = []
         position_stack = []
@@ -539,12 +548,13 @@ class CablePath(models.Model):
         while terminations:
 
             # Terminations must all be of the same type
-            assert all(isinstance(t, type(terminations[0])) for t in terminations[1:])
+            if not all(isinstance(t, type(terminations[0])) for t in terminations[1:]):
+                raise UnsupportedCablePath(_("All mid-span terminations must have the same termination type"))
 
             # All mid-span terminations must all be attached to the same device
-            if not isinstance(terminations[0], PathEndpoint):
-                assert all(isinstance(t, type(terminations[0])) for t in terminations[1:])
-                assert all(t.parent_object == terminations[0].parent_object for t in terminations[1:])
+            if (not isinstance(terminations[0], PathEndpoint) and not
+                    all(t.parent_object == terminations[0].parent_object for t in terminations[1:])):
+                raise UnsupportedCablePath(_("All mid-span terminations must have the same parent object"))
 
             # Check for a split path (e.g. rear port fanning out to multiple front ports with
             # different cables attached)
@@ -567,8 +577,10 @@ class CablePath(models.Model):
                     return None
                 # Otherwise, halt the trace if no link exists
                 break
-            assert all(type(link) in (Cable, WirelessLink) for link in links)
-            assert all(isinstance(link, type(links[0])) for link in links)
+            if not all(type(link) in (Cable, WirelessLink) for link in links):
+                raise UnsupportedCablePath(_("All links must be cable or wireless"))
+            if not all(isinstance(link, type(links[0])) for link in links):
+                raise UnsupportedCablePath(_("All links must match first link type"))
 
             # Step 3: Record asymmetric paths as split
             not_connected_terminations = [termination.link for termination in terminations if termination.link is None]
@@ -590,7 +602,7 @@ class CablePath(models.Model):
 
             # Step 6: Determine the far-end terminations
             if isinstance(links[0], Cable):
-                termination_type = ContentType.objects.get_for_model(terminations[0])
+                termination_type = ObjectType.objects.get_for_model(terminations[0])
                 local_cable_terminations = CableTermination.objects.filter(
                     termination_type=termination_type,
                     termination_id__in=[t.pk for t in terminations]
@@ -600,6 +612,10 @@ class CablePath(models.Model):
                 for lct in local_cable_terminations:
                     cable_end = 'A' if lct.cable_end == 'B' else 'B'
                     q_filter |= Q(cable=lct.cable, cable_end=cable_end)
+
+                # Make sure this filter has been populated; if not, we have probably been given invalid data
+                if not q_filter:
+                    break
 
                 remote_cable_terminations = CableTermination.objects.filter(q_filter)
                 remote_terminations = [ct.termination for ct in remote_cable_terminations]
@@ -645,14 +661,18 @@ class CablePath(models.Model):
                     positions = position_stack.pop()
 
                     # Ensure we have a number of positions equal to the amount of remote terminations
-                    assert len(remote_terminations) == len(positions)
+                    if len(remote_terminations) != len(positions):
+                        raise UnsupportedCablePath(
+                            _("All positions counts within the path on opposite ends of links must match")
+                        )
 
                     # Get our front ports
                     q_filter = Q()
                     for rt in remote_terminations:
                         position = positions.pop()
                         q_filter |= Q(rear_port_id=rt.pk, rear_port_position=position)
-                    assert q_filter is not Q()
+                    if q_filter is Q():
+                        raise UnsupportedCablePath(_("Remote termination position filter is missing"))
                     front_ports = FrontPort.objects.filter(q_filter)
                 # Obtain the individual front ports based on the termination and position
                 elif position_stack:
@@ -660,6 +680,14 @@ class CablePath(models.Model):
                         rear_port_id=remote_terminations[0].pk,
                         rear_port_position__in=position_stack.pop()
                     )
+                # If all rear ports have a single position, we can just get the front ports
+                elif all([rp.positions == 1 for rp in remote_terminations]):
+                    front_ports = FrontPort.objects.filter(rear_port_id__in=[rp.pk for rp in remote_terminations])
+
+                    if len(front_ports) != len(remote_terminations):
+                        # Some rear ports does not have a front port
+                        is_split = True
+                        break
                 else:
                     # No position indicated: path has split, so we stop at the RearPorts
                     is_split = True
@@ -678,19 +706,19 @@ class CablePath(models.Model):
                 ).first()
                 if circuit_termination is None:
                     break
-                elif circuit_termination.provider_network:
+                elif circuit_termination._provider_network:
                     # Circuit terminates to a ProviderNetwork
                     path.extend([
                         [object_to_path_node(circuit_termination)],
-                        [object_to_path_node(circuit_termination.provider_network)],
+                        [object_to_path_node(circuit_termination._provider_network)],
                     ])
                     is_complete = True
                     break
-                elif circuit_termination.site and not circuit_termination.cable:
-                    # Circuit terminates to a Site
+                elif circuit_termination.termination and not circuit_termination.cable:
+                    # Circuit terminates to a Region/Site/etc.
                     path.extend([
                         [object_to_path_node(circuit_termination)],
-                        [object_to_path_node(circuit_termination.site)],
+                        [object_to_path_node(circuit_termination.termination)],
                     ])
                     break
 
@@ -730,47 +758,11 @@ class CablePath(models.Model):
             self.delete()
     retrace.alters_data = True
 
-    def _get_path(self):
-        """
-        Return the path as a list of prefetched objects.
-        """
-        # Compile a list of IDs to prefetch for each type of model in the path
-        to_prefetch = defaultdict(list)
-        for node in self._nodes:
-            ct_id, object_id = decompile_path_node(node)
-            to_prefetch[ct_id].append(object_id)
-
-        # Prefetch path objects using one query per model type. Prefetch related devices where appropriate.
-        prefetched = {}
-        for ct_id, object_ids in to_prefetch.items():
-            model_class = ContentType.objects.get_for_id(ct_id).model_class()
-            queryset = model_class.objects.filter(pk__in=object_ids)
-            if hasattr(model_class, 'device'):
-                queryset = queryset.prefetch_related('device')
-            prefetched[ct_id] = {
-                obj.id: obj for obj in queryset
-            }
-
-        # Replicate the path using the prefetched objects.
-        path = []
-        for step in self.path:
-            nodes = []
-            for node in step:
-                ct_id, object_id = decompile_path_node(node)
-                try:
-                    nodes.append(prefetched[ct_id][object_id])
-                except KeyError:
-                    # Ignore stale (deleted) object IDs
-                    pass
-            path.append(nodes)
-
-        return path
-
     def get_cable_ids(self):
         """
         Return all Cable IDs within the path.
         """
-        cable_ct = ContentType.objects.get_for_model(Cable).pk
+        cable_ct = ObjectType.objects.get_for_model(Cable).pk
         cable_ids = []
 
         for node in self._nodes:
@@ -785,9 +777,28 @@ class CablePath(models.Model):
         Return a tuple containing the sum of the length of each cable in the path
         and a flag indicating whether the length is definitive.
         """
+        cable_ct = ObjectType.objects.get_for_model(Cable).pk
+
+        # Pre-cache cable lengths by ID
         cable_ids = self.get_cable_ids()
-        cables = Cable.objects.filter(id__in=cable_ids, _abs_length__isnull=False)
-        total_length = cables.aggregate(total=Sum('_abs_length'))['total']
+        cables = {
+            cable['pk']: cable['_abs_length']
+            for cable in Cable.objects.filter(id__in=cable_ids, _abs_length__isnull=False).values('pk', '_abs_length')
+        }
+
+        # Iterate through each set of nodes in the path. For cables, add the length of the longest cable to the total
+        # length of the path.
+        total_length = 0
+        for node_set in self.path:
+            hop_length = 0
+            for node in node_set:
+                ct, pk = decompile_path_node(node)
+                if ct != cable_ct:
+                    break  # Not a cable
+                if pk in cables and cables[pk] > hop_length:
+                    hop_length = cables[pk]
+            total_length += hop_length
+
         is_definitive = len(cables) == len(cable_ids)
 
         return total_length, is_definitive

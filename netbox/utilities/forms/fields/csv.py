@@ -1,11 +1,11 @@
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
+from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist, FieldError
 from django.db.models import Q
 
 from utilities.choices import unpack_grouped_choices
-from utilities.utils import content_type_identifier
+from utilities.object_types import object_type_identifier
 
 __all__ = (
     'CSVChoiceField',
@@ -64,6 +64,10 @@ class CSVModelChoiceField(forms.ModelChoiceField):
             raise forms.ValidationError(
                 _('"{value}" is not a unique value for this field; multiple objects were found').format(value=value)
             )
+        except FieldError:
+            raise forms.ValidationError(
+                _('"{field_name}" is an invalid accessor field name.').format(field_name=self.to_field_name)
+            )
 
 
 class CSVModelMultipleChoiceField(forms.ModelMultipleChoiceField):
@@ -75,7 +79,8 @@ class CSVModelMultipleChoiceField(forms.ModelMultipleChoiceField):
     }
 
     def clean(self, value):
-        value = value.split(',') if value else []
+        if not isinstance(value, list):
+            value = value.split(',') if value else []
         return super().clean(value)
 
 
@@ -86,7 +91,7 @@ class CSVContentTypeField(CSVModelChoiceField):
     STATIC_CHOICES = True
 
     def prepare_value(self, value):
-        return content_type_identifier(value)
+        return object_type_identifier(value)
 
     def to_python(self, value):
         if not value:
@@ -115,4 +120,4 @@ class CSVMultipleContentTypeField(forms.ModelMultipleChoiceField):
                 app_label, model = name.split('.')
                 ct_filter |= Q(app_label=app_label, model=model)
             return list(ContentType.objects.filter(ct_filter).values_list('pk', flat=True))
-        return content_type_identifier(value)
+        return object_type_identifier(value)

@@ -1,6 +1,6 @@
 from django import forms
 
-from utilities.choices import ColorChoices
+from netbox.choices import ColorChoices
 from ..utils import add_blank_choice
 
 __all__ = (
@@ -25,7 +25,6 @@ class BulkEditNullBooleanSelect(forms.NullBooleanSelect):
             ('2', 'Yes'),
             ('3', 'No'),
         )
-        self.attrs['class'] = 'netbox-static-select'
 
 
 class ColorSelect(forms.Select):
@@ -37,16 +36,19 @@ class ColorSelect(forms.Select):
     def __init__(self, *args, **kwargs):
         kwargs['choices'] = add_blank_choice(ColorChoices)
         super().__init__(*args, **kwargs)
-        self.attrs['class'] = 'netbox-color-select'
+        self.attrs['class'] = 'color-select'
 
 
 class HTMXSelect(forms.Select):
     """
     Selection widget that will re-generate the HTML form upon the selection of a new option.
     """
-    def __init__(self, hx_url='.', hx_target_id='form_fields', attrs=None, **kwargs):
+    def __init__(self, method='get', hx_url='.', hx_target_id='form_fields', attrs=None, **kwargs):
+        method = method.lower()
+        if method not in ('delete', 'get', 'patch', 'post', 'put'):
+            raise ValueError(f"Unsupported HTTP method: {method}")
         _attrs = {
-            'hx-get': hx_url,
+            f'hx-{method}': hx_url,
             'hx-include': f'#{hx_target_id}',
             'hx-target': f'#{hx_target_id}',
         }

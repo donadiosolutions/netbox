@@ -42,8 +42,6 @@ This parameter has no effect on the API representation of custom field data.
 
 ### Visibility & Editing
 
-!!! info "This feature was improved in NetBox v3.7."
-
 When creating a custom field, users can control the conditions under which it may be displayed and edited within the NetBox user interface. The following choices are available for controlling the display of a custom field on an object:
 
 * **Always** (default): The custom field is included when viewing an object.
@@ -75,6 +73,8 @@ If a default value is specified for a selection field, it must exactly match one
 ### Custom Object Fields
 
 An object or multi-object custom field can be used to refer to a particular NetBox object or objects as the "value" for a custom field. These custom fields must define an `object_type`, which determines the type of object to which custom field instances point.
+
+By default, an object choice field will make all objects of that type available for selection in the drop-down. The list choices can be filtered to show only objects with certain values by providing a `query_params` dict in the Related Object Filter field, as a JSON value. More information about `query_params` can be found [here](./custom-scripts.md#objectvar).
 
 ## Custom Fields in Templates
 

@@ -1,6 +1,4 @@
-from django.contrib.auth.models import Group
-from django.contrib.contenttypes.models import ContentType
-
+from core.models import ObjectType
 from users.models import *
 from utilities.testing import ViewTestCases, create_test_user
 
@@ -15,7 +13,7 @@ class UserTestCase(
     ViewTestCases.BulkEditObjectsViewTestCase,
     ViewTestCases.BulkDeleteObjectsViewTestCase,
 ):
-    model = NetBoxUser
+    model = User
     maxDiff = None
     validation_excluded_fields = ['password']
 
@@ -25,21 +23,26 @@ class UserTestCase(
 
     @classmethod
     def setUpTestData(cls):
-
         users = (
-            NetBoxUser(username='username1', first_name='first1', last_name='last1', email='user1@foo.com', password='pass1xxx'),
-            NetBoxUser(username='username2', first_name='first2', last_name='last2', email='user2@foo.com', password='pass2xxx'),
-            NetBoxUser(username='username3', first_name='first3', last_name='last3', email='user3@foo.com', password='pass3xxx'),
+            User(
+                username='username1', first_name='first1', last_name='last1', email='user1@foo.com', password='pass1xxx'
+            ),
+            User(
+                username='username2', first_name='first2', last_name='last2', email='user2@foo.com', password='pass2xxx'
+            ),
+            User(
+                username='username3', first_name='first3', last_name='last3', email='user3@foo.com', password='pass3xxx'
+            ),
         )
-        NetBoxUser.objects.bulk_create(users)
+        User.objects.bulk_create(users)
 
         cls.form_data = {
             'username': 'usernamex',
             'first_name': 'firstx',
             'last_name': 'lastx',
             'email': 'userx@foo.com',
-            'password': 'pass1xxx',
-            'confirm_password': 'pass1xxx',
+            'password': 'pass1xxxABCD',
+            'confirm_password': 'pass1xxxABCD',
         }
 
         cls.csv_data = (
@@ -60,6 +63,50 @@ class UserTestCase(
             'last_name': 'newlastname',
         }
 
+    def test_password_validation_enforced(self):
+        """
+        Test that any configured password validation rules (AUTH_PASSWORD_VALIDATORS) are enforced.
+        """
+        self.add_permissions('users.add_user')
+        data = {
+            'username': 'new_user',
+            'password': 'F1a',
+            'confirm_password': 'F1a',
+        }
+
+        # Password too short
+        request = {
+            'path': self._get_url('add'),
+            'data': data,
+        }
+        response = self.client.post(**request)
+        self.assertHttpStatus(response, 200)
+
+        # Password long enough
+        data['password'] = 'fooBarFoo123'
+        data['confirm_password'] = 'fooBarFoo123'
+        self.assertHttpStatus(self.client.post(**request), 302)
+
+        # Password no number
+        data['password'] = 'FooBarFooBar'
+        data['confirm_password'] = 'FooBarFooBar'
+        self.assertHttpStatus(self.client.post(**request), 200)
+
+        # Password no letter
+        data['password'] = '123456789123'
+        data['confirm_password'] = '123456789123'
+        self.assertHttpStatus(self.client.post(**request), 200)
+
+        # Password no uppercase
+        data['password'] = 'foobar123abc'
+        data['confirm_password'] = 'foobar123abc'
+        self.assertHttpStatus(self.client.post(**request), 200)
+
+        # Password no lowercase
+        data['password'] = 'FOOBAR123ABC'
+        data['confirm_password'] = 'FOOBAR123ABC'
+        self.assertHttpStatus(self.client.post(**request), 200)
+
 
 class GroupTestCase(
     ViewTestCases.GetObjectViewTestCase,
@@ -68,9 +115,10 @@ class GroupTestCase(
     ViewTestCases.DeleteObjectViewTestCase,
     ViewTestCases.ListObjectsViewTestCase,
     ViewTestCases.BulkImportObjectsViewTestCase,
+    ViewTestCases.BulkEditObjectsViewTestCase,
     ViewTestCases.BulkDeleteObjectsViewTestCase,
 ):
-    model = NetBoxGroup
+    model = Group
     maxDiff = None
 
     @classmethod
@@ -101,6 +149,10 @@ class GroupTestCase(
             f"{groups[2].pk},group9",
         )
 
+        cls.bulk_edit_data = {
+            'description': 'New description',
+        }
+
 
 class ObjectPermissionTestCase(
     ViewTestCases.GetObjectViewTestCase,
@@ -116,7 +168,7 @@ class ObjectPermissionTestCase(
 
     @classmethod
     def setUpTestData(cls):
-        ct = ContentType.objects.get_by_natural_key('dcim', 'site')
+        object_type = ObjectType.objects.get_by_natural_key('dcim', 'site')
 
         permissions = (
             ObjectPermission(name='Permission 1', actions=['view', 'add', 'delete']),
@@ -128,7 +180,7 @@ class ObjectPermissionTestCase(
         cls.form_data = {
             'name': 'Permission X',
             'description': 'A new permission',
-            'object_types': [ct.pk],
+            'object_types': [object_type.pk],
             'actions': 'view,edit,delete',
         }
 

@@ -1,13 +1,21 @@
-import { getElements, isTruthy } from './util';
+import { initForms } from './forms';
 import { initButtons } from './buttons';
-import { initSelect } from './select';
+import { initClipboard } from './clipboard';
+import { initSelects } from './select';
 import { initObjectSelector } from './objectSelector';
 import { initBootstrap } from './bs';
+import { initMessages } from './messages';
+import { initQuickAdd } from './quickAdd';
 
 function initDepedencies(): void {
-  for (const init of [initButtons, initSelect, initObjectSelector, initBootstrap]) {
-    init();
-  }
+  initButtons();
+  initClipboard();
+  initForms();
+  initSelects();
+  initObjectSelector();
+  initQuickAdd();
+  initBootstrap();
+  initMessages();
 }
 
 /**
@@ -15,16 +23,5 @@ function initDepedencies(): void {
  * elements.
  */
 export function initHtmx(): void {
-  for (const element of getElements('[hx-target]')) {
-    const targetSelector = element.getAttribute('hx-target');
-    if (isTruthy(targetSelector)) {
-      for (const target of getElements(targetSelector)) {
-        target.addEventListener('htmx:afterSettle', initDepedencies);
-      }
-    }
-  }
-
-  for (const element of getElements('[hx-trigger=load]')) {
-    element.addEventListener('htmx:afterSettle', initDepedencies);
-  }
+  document.addEventListener('htmx:afterSettle', initDepedencies);
 }

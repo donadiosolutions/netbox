@@ -1,17 +1,18 @@
 from django.db.models import Count
 
-from extras.models import ObjectChange
-from extras.tables import ObjectChangeTable
+from core.models import ObjectChange
+from core.tables import ObjectChangeTable
 from netbox.views import generic
 from utilities.views import register_model_view
 from . import filtersets, forms, tables
-from .models import NetBoxGroup, NetBoxUser, ObjectPermission, Token
+from .models import Group, User, ObjectPermission, Token
 
 
 #
 # Tokens
 #
 
+@register_model_view(Token, 'list', path='', detail=False)
 class TokenListView(generic.ObjectListView):
     queryset = Token.objects.all()
     filterset = filtersets.TokenFilterSet
@@ -24,10 +25,12 @@ class TokenView(generic.ObjectView):
     queryset = Token.objects.all()
 
 
+@register_model_view(Token, 'add', detail=False)
 @register_model_view(Token, 'edit')
 class TokenEditView(generic.ObjectEditView):
     queryset = Token.objects.all()
     form = forms.TokenForm
+    template_name = 'users/token_edit.html'
 
 
 @register_model_view(Token, 'delete')
@@ -35,17 +38,20 @@ class TokenDeleteView(generic.ObjectDeleteView):
     queryset = Token.objects.all()
 
 
+@register_model_view(Token, 'bulk_import', path='import', detail=False)
 class TokenBulkImportView(generic.BulkImportView):
     queryset = Token.objects.all()
     model_form = forms.TokenImportForm
 
 
+@register_model_view(Token, 'bulk_edit', path='edit', detail=False)
 class TokenBulkEditView(generic.BulkEditView):
     queryset = Token.objects.all()
     table = tables.TokenTable
     form = forms.TokenBulkEditForm
 
 
+@register_model_view(Token, 'bulk_delete', path='delete', detail=False)
 class TokenBulkDeleteView(generic.BulkDeleteView):
     queryset = Token.objects.all()
     table = tables.TokenTable
@@ -55,16 +61,17 @@ class TokenBulkDeleteView(generic.BulkDeleteView):
 # Users
 #
 
+@register_model_view(User, 'list', path='', detail=False)
 class UserListView(generic.ObjectListView):
-    queryset = NetBoxUser.objects.all()
+    queryset = User.objects.all()
     filterset = filtersets.UserFilterSet
-    filterset_form = forms.NetBoxUserFilterForm
+    filterset_form = forms.UserFilterForm
     table = tables.UserTable
 
 
-@register_model_view(NetBoxUser)
+@register_model_view(User)
 class UserView(generic.ObjectView):
-    queryset = NetBoxUser.objects.all()
+    queryset = User.objects.all()
     template_name = 'users/user.html'
 
     def get_extra_context(self, request, instance):
@@ -76,31 +83,35 @@ class UserView(generic.ObjectView):
         }
 
 
-@register_model_view(NetBoxUser, 'edit')
+@register_model_view(User, 'add', detail=False)
+@register_model_view(User, 'edit')
 class UserEditView(generic.ObjectEditView):
-    queryset = NetBoxUser.objects.all()
+    queryset = User.objects.all()
     form = forms.UserForm
 
 
-@register_model_view(NetBoxUser, 'delete')
+@register_model_view(User, 'delete')
 class UserDeleteView(generic.ObjectDeleteView):
-    queryset = NetBoxUser.objects.all()
+    queryset = User.objects.all()
 
 
+@register_model_view(User, 'bulk_import', path='import', detail=False)
+class UserBulkImportView(generic.BulkImportView):
+    queryset = User.objects.all()
+    model_form = forms.UserImportForm
+
+
+@register_model_view(User, 'bulk_edit', path='edit', detail=False)
 class UserBulkEditView(generic.BulkEditView):
-    queryset = NetBoxUser.objects.all()
+    queryset = User.objects.all()
     filterset = filtersets.UserFilterSet
     table = tables.UserTable
     form = forms.UserBulkEditForm
 
 
-class UserBulkImportView(generic.BulkImportView):
-    queryset = NetBoxUser.objects.all()
-    model_form = forms.UserImportForm
-
-
+@register_model_view(User, 'bulk_delete', path='delete', detail=False)
 class UserBulkDeleteView(generic.BulkDeleteView):
-    queryset = NetBoxUser.objects.all()
+    queryset = User.objects.all()
     filterset = filtersets.UserFilterSet
     table = tables.UserTable
 
@@ -109,37 +120,49 @@ class UserBulkDeleteView(generic.BulkDeleteView):
 # Groups
 #
 
+@register_model_view(Group, 'list', path='', detail=False)
 class GroupListView(generic.ObjectListView):
-    queryset = NetBoxGroup.objects.annotate(users_count=Count('user'))
+    queryset = Group.objects.annotate(users_count=Count('user')).order_by('name')
     filterset = filtersets.GroupFilterSet
-    filterset_form = forms.NetBoxGroupFilterForm
+    filterset_form = forms.GroupFilterForm
     table = tables.GroupTable
 
 
-@register_model_view(NetBoxGroup)
+@register_model_view(Group)
 class GroupView(generic.ObjectView):
-    queryset = NetBoxGroup.objects.all()
+    queryset = Group.objects.all()
     template_name = 'users/group.html'
 
 
-@register_model_view(NetBoxGroup, 'edit')
+@register_model_view(Group, 'add', detail=False)
+@register_model_view(Group, 'edit')
 class GroupEditView(generic.ObjectEditView):
-    queryset = NetBoxGroup.objects.all()
+    queryset = Group.objects.all()
     form = forms.GroupForm
 
 
-@register_model_view(NetBoxGroup, 'delete')
+@register_model_view(Group, 'delete')
 class GroupDeleteView(generic.ObjectDeleteView):
-    queryset = NetBoxGroup.objects.all()
+    queryset = Group.objects.all()
 
 
+@register_model_view(Group, 'bulk_import', path='import', detail=False)
 class GroupBulkImportView(generic.BulkImportView):
-    queryset = NetBoxGroup.objects.all()
+    queryset = Group.objects.all()
     model_form = forms.GroupImportForm
 
 
+@register_model_view(Group, 'bulk_edit', path='edit', detail=False)
+class GroupBulkEditView(generic.BulkEditView):
+    queryset = Group.objects.all()
+    filterset = filtersets.GroupFilterSet
+    table = tables.GroupTable
+    form = forms.GroupBulkEditForm
+
+
+@register_model_view(Group, 'bulk_delete', path='delete', detail=False)
 class GroupBulkDeleteView(generic.BulkDeleteView):
-    queryset = NetBoxGroup.objects.annotate(users_count=Count('user'))
+    queryset = Group.objects.annotate(users_count=Count('user')).order_by('name')
     filterset = filtersets.GroupFilterSet
     table = tables.GroupTable
 
@@ -148,6 +171,7 @@ class GroupBulkDeleteView(generic.BulkDeleteView):
 # ObjectPermissions
 #
 
+@register_model_view(ObjectPermission, 'list', path='', detail=False)
 class ObjectPermissionListView(generic.ObjectListView):
     queryset = ObjectPermission.objects.all()
     filterset = filtersets.ObjectPermissionFilterSet
@@ -161,6 +185,7 @@ class ObjectPermissionView(generic.ObjectView):
     template_name = 'users/objectpermission.html'
 
 
+@register_model_view(ObjectPermission, 'add', detail=False)
 @register_model_view(ObjectPermission, 'edit')
 class ObjectPermissionEditView(generic.ObjectEditView):
     queryset = ObjectPermission.objects.all()
@@ -172,6 +197,7 @@ class ObjectPermissionDeleteView(generic.ObjectDeleteView):
     queryset = ObjectPermission.objects.all()
 
 
+@register_model_view(ObjectPermission, 'bulk_edit', path='edit', detail=False)
 class ObjectPermissionBulkEditView(generic.BulkEditView):
     queryset = ObjectPermission.objects.all()
     filterset = filtersets.ObjectPermissionFilterSet
@@ -179,6 +205,7 @@ class ObjectPermissionBulkEditView(generic.BulkEditView):
     form = forms.ObjectPermissionBulkEditForm
 
 
+@register_model_view(ObjectPermission, 'bulk_delete', path='delete', detail=False)
 class ObjectPermissionBulkDeleteView(generic.BulkDeleteView):
     queryset = ObjectPermission.objects.all()
     filterset = filtersets.ObjectPermissionFilterSet

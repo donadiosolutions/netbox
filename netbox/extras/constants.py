@@ -1,20 +1,21 @@
-# Events
-EVENT_CREATE = 'create'
-EVENT_UPDATE = 'update'
-EVENT_DELETE = 'delete'
-EVENT_JOB_START = 'job_start'
-EVENT_JOB_END = 'job_end'
+from core.events import *
+from extras.choices import LogLevelChoices
 
+# Custom fields
+CUSTOMFIELD_EMPTY_VALUES = (None, '', [])
 
 # Webhooks
 HTTP_CONTENT_TYPE_JSON = 'application/json'
 
 WEBHOOK_EVENT_TYPES = {
-    EVENT_CREATE: 'created',
-    EVENT_UPDATE: 'updated',
-    EVENT_DELETE: 'deleted',
-    EVENT_JOB_START: 'job_started',
-    EVENT_JOB_END: 'job_ended',
+    # Map registered event types to public webhook "event" equivalents
+    OBJECT_CREATED: 'created',
+    OBJECT_UPDATED: 'updated',
+    OBJECT_DELETED: 'deleted',
+    JOB_STARTED: 'job_started',
+    JOB_COMPLETED: 'job_ended',
+    JOB_FAILED: 'job_ended',
+    JOB_ERRORED: 'job_ended',
 }
 
 # Dashboard
@@ -75,9 +76,10 @@ DEFAULT_DASHBOARD = [
         'height': 4,
         'title': 'NetBox News',
         'config': {
-            'feed_url': 'http://netbox.dev/rss/',
+            'feed_url': 'https://api.netbox.oss.netboxlabs.com/v1/newsfeed/',
             'max_entries': 10,
             'cache_timeout': 14400,
+            'requires_internet': True,
         }
     },
     {
@@ -128,8 +130,16 @@ DEFAULT_DASHBOARD = [
         'title': 'Change Log',
         'color': 'blue',
         'config': {
-            'model': 'extras.objectchange',
+            'model': 'core.objectchange',
             'page_size': 25,
         }
     },
 ]
+
+LOG_LEVEL_RANK = {
+    LogLevelChoices.LOG_DEBUG: 0,
+    LogLevelChoices.LOG_INFO: 1,
+    LogLevelChoices.LOG_SUCCESS: 2,
+    LogLevelChoices.LOG_WARNING: 3,
+    LogLevelChoices.LOG_FAILURE: 4,
+}

@@ -4,6 +4,7 @@ from django.utils.translation import gettext_lazy as _
 from dcim.models import *
 from netbox.forms import NetBoxModelForm
 from utilities.forms.fields import DynamicModelChoiceField, DynamicModelMultipleChoiceField, ExpandableNameField
+from utilities.forms.rendering import FieldSet, TabbedGroups
 from utilities.forms.widgets import APISelect
 from . import model_forms
 
@@ -54,19 +55,23 @@ class ComponentCreateForm(forms.Form):
     def clean(self):
         super().clean()
 
-        # Validate that all replication fields generate an equal number of values
+        # Validate that all replication fields generate an equal number of values (or a single value)
         if not (patterns := self.cleaned_data.get(self.replication_fields[0])):
             return
-
         pattern_count = len(patterns)
         for field_name in self.replication_fields:
             value_count = len(self.cleaned_data[field_name])
-            if self.cleaned_data[field_name] and value_count != pattern_count:
-                raise forms.ValidationError({
-                    field_name: _(
-                        "The provided pattern specifies {value_count} values, but {pattern_count} are expected."
-                    ).format(value_count=value_count, pattern_count=pattern_count)
-                }, code='label_pattern_mismatch')
+            if self.cleaned_data[field_name]:
+                if value_count == 1:
+                    # If the field resolves to a single value (because no pattern was used), multiply it by the number
+                    # of expected values. This allows us to reuse the same label when creating multiple components.
+                    self.cleaned_data[field_name] = self.cleaned_data[field_name] * pattern_count
+                elif value_count != pattern_count:
+                    raise forms.ValidationError({
+                        field_name: _(
+                            "The provided pattern specifies {value_count} values, but {pattern_count} are expected."
+                        ).format(value_count=value_count, pattern_count=pattern_count)
+                    }, code='label_pattern_mismatch')
 
 
 #
@@ -113,7 +118,13 @@ class FrontPortTemplateCreateForm(ComponentCreateForm, model_forms.FrontPortTemp
 
     # Override fieldsets from FrontPortTemplateForm to omit rear_port_position
     fieldsets = (
-        (None, ('device_type', 'module_type', 'name', 'label', 'type', 'color', 'rear_port', 'description')),
+        FieldSet(
+            TabbedGroups(
+                FieldSet('device_type', name=_('Device Type')),
+                FieldSet('module_type', name=_('Module Type')),
+            ),
+            'name', 'label', 'type', 'color', 'rear_port', 'description',
+        ),
     )
 
     class Meta(model_forms.FrontPortTemplateForm.Meta):
@@ -152,6 +163,7 @@ class FrontPortTemplateCreateForm(ComponentCreateForm, model_forms.FrontPortTemp
         self.fields['rear_port'].choices = choices
 
     def clean(self):
+        super().clean()
 
         # Check that the number of FrontPortTemplates to be created matches the selected number of RearPortTemplate
         # positions
@@ -242,14 +254,6 @@ class InterfaceCreateForm(ComponentCreateForm, model_forms.InterfaceForm):
     class Meta(model_forms.InterfaceForm.Meta):
         exclude = ('name', 'label')
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        if 'module' in self.fields:
-            self.fields['name'].help_text += _(
-                "The string <code>{module}</code> will be replaced with the position of the assigned module, if any."
-            )
-
 
 class FrontPortCreateForm(ComponentCreateForm, model_forms.FrontPortForm):
     device = DynamicModelChoiceField(
@@ -260,8 +264,8 @@ class FrontPortCreateForm(ComponentCreateForm, model_forms.FrontPortForm):
             # TODO: Clean up the application of HTMXSelect attributes
             attrs={
                 'hx-get': '.',
-                'hx-include': f'#form_fields',
-                'hx-target': f'#form_fields',
+                'hx-include': '#form_fields',
+                'hx-target': '#form_fields',
             }
         )
     )
@@ -274,9 +278,9 @@ class FrontPortCreateForm(ComponentCreateForm, model_forms.FrontPortForm):
 
     # Override fieldsets from FrontPortForm to omit rear_port_position
     fieldsets = (
-        (None, (
+        FieldSet(
             'device', 'module', 'name', 'label', 'type', 'color', 'rear_port', 'mark_connected', 'description', 'tags',
-        )),
+        ),
     )
 
     class Meta(model_forms.FrontPortForm.Meta):
@@ -309,6 +313,7 @@ class FrontPortCreateForm(ComponentCreateForm, model_forms.FrontPortForm):
         self.fields['rear_port'].choices = choices
 
     def clean(self):
+        super().clean()
 
         # Check that the number of FrontPorts to be created matches the selected number of RearPort positions
         frontport_count = len(self.cleaned_data['name'])
@@ -409,6 +414,7 @@ class VirtualChassisCreateForm(NetBoxModelForm):
         queryset=Device.objects.all(),
         required=False,
         query_params={
+            'virtual_chassis_id': 'null',
             'site_id': '$site',
             'rack_id': '$rack',
         }
@@ -423,7 +429,8 @@ class VirtualChassisCreateForm(NetBoxModelForm):
     class Meta:
         model = VirtualChassis
         fields = [
-            'name', 'domain', 'description', 'region', 'site_group', 'site', 'rack', 'members', 'initial_position', 'tags',
+            'name', 'domain', 'description', 'region', 'site_group', 'site', 'rack', 'members', 'initial_position',
+            'tags',
         ]
 
     def clean(self):

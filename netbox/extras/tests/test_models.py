@@ -1,6 +1,7 @@
-from django.contrib.contenttypes.models import ContentType
+from django.forms import ValidationError
 from django.test import TestCase
 
+from core.models import ObjectType
 from dcim.models import Device, DeviceRole, DeviceType, Location, Manufacturer, Platform, Region, Site, SiteGroup
 from extras.models import ConfigContext, Tag
 from tenancy.models import Tenant, TenantGroup
@@ -22,7 +23,7 @@ class TagTest(TestCase):
 
         # Create a Tag that can only be applied to Regions
         tag = Tag.objects.create(name='Tag 1', slug='tag-1')
-        tag.object_types.add(ContentType.objects.get_by_natural_key('dcim', 'region'))
+        tag.object_types.add(ObjectType.objects.get_by_natural_key('dcim', 'region'))
 
         # Apply the Tag to a Region
         region.tags.add(tag)
@@ -49,11 +50,11 @@ class ConfigContextTest(TestCase):
         sitegroup = SiteGroup.objects.create(name='Site Group')
         site = Site.objects.create(name='Site 1', slug='site-1', region=region, group=sitegroup)
         location = Location.objects.create(name='Location 1', slug='location-1', site=site)
-        platform = Platform.objects.create(name='Platform')
+        Platform.objects.create(name='Platform')
         tenantgroup = TenantGroup.objects.create(name='Tenant Group')
-        tenant = Tenant.objects.create(name='Tenant', group=tenantgroup)
-        tag1 = Tag.objects.create(name='Tag', slug='tag')
-        tag2 = Tag.objects.create(name='Tag2', slug='tag2')
+        Tenant.objects.create(name='Tenant', group=tenantgroup)
+        Tag.objects.create(name='Tag', slug='tag')
+        Tag.objects.create(name='Tag2', slug='tag2')
 
         Device.objects.create(
             name='Device 1',
@@ -274,7 +275,7 @@ class ConfigContextTest(TestCase):
             name="Cluster",
             group=cluster_group,
             type=cluster_type,
-            site=site,
+            scope=site,
         )
 
         region_context = ConfigContext.objects.create(
@@ -366,7 +367,7 @@ class ConfigContextTest(TestCase):
         """
         site = Site.objects.first()
         cluster_type = ClusterType.objects.create(name="Cluster Type")
-        cluster = Cluster.objects.create(name="Cluster", type=cluster_type, site=site)
+        cluster = Cluster.objects.create(name="Cluster", type=cluster_type, scope=site)
         vm_role = DeviceRole.objects.first()
 
         # Create a ConfigContext associated with the site
@@ -478,3 +479,30 @@ class ConfigContextTest(TestCase):
         annotated_queryset = Device.objects.filter(name=device.name).annotate_config_context_data()
         self.assertEqual(ConfigContext.objects.get_for_object(device).count(), 2)
         self.assertEqual(device.get_config_context(), annotated_queryset[0].get_config_context())
+
+    def test_valid_local_context_data(self):
+        device = Device.objects.first()
+        device.local_context_data = None
+        device.clean()
+
+        device.local_context_data = {"foo": "bar"}
+        device.clean()
+
+    def test_invalid_local_context_data(self):
+        device = Device.objects.first()
+
+        device.local_context_data = ""
+        with self.assertRaises(ValidationError):
+            device.clean()
+
+        device.local_context_data = 0
+        with self.assertRaises(ValidationError):
+            device.clean()
+
+        device.local_context_data = False
+        with self.assertRaises(ValidationError):
+            device.clean()
+
+        device.local_context_data = 'foo'
+        with self.assertRaises(ValidationError):
+            device.clean()

@@ -1,17 +1,16 @@
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from extras.choices import DurationChoices
-from utilities.forms import BootstrapMixin
+from core.choices import JobIntervalChoices
 from utilities.forms.widgets import DateTimePicker, NumberWithOptions
-from utilities.utils import local_now
+from utilities.datetime import local_now
 
 __all__ = (
     'ReportForm',
 )
 
 
-class ReportForm(BootstrapMixin, forms.Form):
+class ReportForm(forms.Form):
     schedule_at = forms.DateTimeField(
         required=False,
         widget=DateTimePicker(),
@@ -23,7 +22,7 @@ class ReportForm(BootstrapMixin, forms.Form):
         min_value=1,
         label=_("Recurs every"),
         widget=NumberWithOptions(
-            options=DurationChoices
+            options=JobIntervalChoices
         ),
         help_text=_("Interval at which this report is re-run (in minutes)")
     )
@@ -32,7 +31,7 @@ class ReportForm(BootstrapMixin, forms.Form):
         super().__init__(*args, **kwargs)
 
         # Annotate the current system time for reference
-        now = local_now().strftime('%Y-%m-%d %H:%M:%S')
+        now = local_now().strftime('%Y-%m-%d %H:%M:%S %Z')
         self.fields['schedule_at'].help_text += _(' (current time: <strong>{now}</strong>)').format(now=now)
 
         # Remove scheduling fields if scheduling is disabled

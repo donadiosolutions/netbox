@@ -6,8 +6,8 @@ This section of the documentation discusses installing and configuring the NetBo
 
 Begin by installing all system packages required by NetBox and its dependencies.
 
-!!! warning "Python 3.8 or later required"
-    NetBox requires Python 3.8, 3.9, 3.10 or 3.11.
+!!! warning "Python 3.10 or later required"
+    NetBox supports Python 3.10, 3.11, and 3.12.
 
 === "Ubuntu"
 
@@ -21,7 +21,7 @@ Begin by installing all system packages required by NetBox and its dependencies.
     sudo yum install -y gcc libxml2-devel libxslt-devel libffi-devel libpq-devel openssl-devel redhat-rpm-config
     ```
 
-Before continuing, check that your installed Python version is at least 3.8:
+Before continuing, check that your installed Python version is at least 3.10:
 
 ```no-highlight
 python3 -V
@@ -29,7 +29,7 @@ python3 -V
 
 ## Download NetBox
 
-This documentation provides two options for installing NetBox: from a downloadable archive, or from the git repository. Installing from a package (option A below) requires manually fetching and extracting the archive for every future update, whereas installation via git (option B) allows for seamless upgrades by re-pulling the `master` branch.
+This documentation provides two options for installing NetBox: from a downloadable archive, or from the git repository. Installing from a package (option A below) requires manually fetching and extracting the archive for every future update, whereas installation via git (option B) allows for seamless upgrades by checking out the latest release tag.
 
 ### Option A: Download a Release Archive
 
@@ -67,16 +67,13 @@ If `git` is not already installed, install it:
     sudo yum install -y git
     ```
 
-Next, clone the **master** branch of the NetBox GitHub repository into the current directory. (This branch always holds the current stable release.)
+Next, clone the git repository:
 
 ```no-highlight
-sudo git clone -b master --depth 1 https://github.com/netbox-community/netbox.git .
+sudo git clone https://github.com/netbox-community/netbox.git .
 ```
 
-!!! note
-    The `git clone` command above utilizes a "shallow clone" to retrieve only the most recent commit. If you need to download the entire history, omit the `--depth 1` argument.
-
-The `git clone` command should generate output similar to the following:
+This command should generate output similar to the following:
 
 ```
 Cloning into '.'...
@@ -88,8 +85,13 @@ Receiving objects: 100% (996/996), 4.26 MiB | 9.81 MiB/s, done.
 Resolving deltas: 100% (148/148), done.
 ```
 
-!!! note
-    Installation via git also allows you to easily try out different versions of NetBox. To check out a [specific NetBox release](https://github.com/netbox-community/netbox/releases), use the `git checkout` command with the desired release tag. For example, `git checkout v3.0.8`.
+Finally, check out the tag for the desired release. You can find these on our [releases page](https://github.com/netbox-community/netbox/releases). Replace `vX.Y.Z` with your selected release tag below.
+
+```
+sudo git checkout vX.Y.Z
+```
+
+Using this installation method enables easy upgrades in the future by simply checking out the latest release tag.
 
 ## Create the NetBox System User
 
@@ -244,7 +246,7 @@ Once NetBox has been configured, we're ready to proceed with the actual installa
 
 * Create a Python virtual environment
 * Installs all required Python packages
-* Run database schema migrations
+* Run database schema migrations (skip with `--readonly`)
 * Builds the documentation locally (for offline use)
 * Aggregate static resource files on disk
 
@@ -255,14 +257,17 @@ Once NetBox has been configured, we're ready to proceed with the actual installa
 sudo /opt/netbox/upgrade.sh
 ```
 
-Note that **Python 3.8 or later is required** for NetBox v3.2 and later releases. If the default Python installation on your server is set to a lesser version,  pass the path to the supported installation as an environment variable named `PYTHON`. (Note that the environment variable must be passed _after_ the `sudo` command.)
+Note that **Python 3.10 or later is required** for NetBox v4.0 and later releases. If the default Python installation on your server is set to a lesser version,  pass the path to the supported installation as an environment variable named `PYTHON`. (Note that the environment variable must be passed _after_ the `sudo` command.)
 
 ```no-highlight
-sudo PYTHON=/usr/bin/python3.8 /opt/netbox/upgrade.sh
+sudo PYTHON=/usr/bin/python3.10 /opt/netbox/upgrade.sh
 ```
 
 !!! note
     Upon completion, the upgrade script may warn that no existing virtual environment was detected. As this is a new installation, this warning can be safely ignored.
+
+!!! note
+    To run the script on a node connected to a database in read-only mode, include the `--readonly` parameter. This will skip the application of any database migrations.
 
 ## Create a Super User
 
