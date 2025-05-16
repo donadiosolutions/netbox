@@ -145,4 +145,4 @@ tablib
 # https://github.com/python/tzdata/blob/master/NEWS.md
 tzdata
 
-rq<1.16.2
+rq>=1.11.0,<1.16.2
