@@ -144,3 +144,5 @@ tablib
 # Timezone data (required by django-timezone-field on Python 3.9+)
 # https://github.com/python/tzdata/blob/master/NEWS.md
 tzdata
+
+rq==2.10.2
